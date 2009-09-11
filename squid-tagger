@@ -1,0 +1,93 @@
+#!/usr/bin/env python-shared
+
+import cPickle,psycopg2,re,sys,thread
+
+class Logger(object):
+	__slots__=frozenset(['_silent','_syslog'])
+	def __init__(this,silent=True):
+		if silent:
+			this._silent=True
+		else:
+			import syslog
+			this._syslog=syslog
+			this._syslog.openlog('squidTag')
+			this._silent=False
+	def info(this,message):
+		if not this._silent:
+			this._syslog.syslog(this._syslog.LOG_INFO,message)
+	def notice(this,message):
+		if not this._silent:
+			this._syslog.syslog(this._syslog.LOG_NOTICE,message)
+
+class tagDB(object):
+	__slots__=frozenset(['_prepared','_cursor'])
+	def __init__(this):
+		this._prepared=set()
+		this._cursor=False
+	def _curs(this):
+		if not this._cursor:
+			this._cursor=psycopg2.connect('host=%s dbname=%s user=%s password=%s'%('pkunk','squidTag','squidTag','NachJas%')).cursor()
+		return this._cursor
+	def check(this,ip_address,site):
+		return this._curs().execute("select redirect_url from site_rules where site <@ tripdomain(%s) and netmask >> %s limit 1",(site,ip_address,))
+	def statusmessage(this):
+		return this._curs().statusmessage
+	def fetchone(this):
+		return this._curs().fetchone()
+
+class CheckerThread(object):
+	__slots__=frozenset(['_db','_lock','_lock_queue','_log','_queue'])
+	def __init__(this,db,log):
+		this._db=db
+		this._log=log
+		this._lock=thread.allocate_lock()
+		this._lock_queue=thread.allocate_lock()
+		this._lock.acquire()
+		this._queue=[]
+		thread.start_new_thread(this._start,())
+	def _start(this):
+		while True:
+			this._lock.acquire()
+			this._lock_queue.acquire()
+			if len(this._queue)>1 and this._lock.locked():
+				this._lock.release()
+			req=this._queue.pop(0)
+			this._lock_queue.release()
+			this._log.info('trying %s\n'%req[1])
+			this._db.check(req[2],req[1])
+			this._log.info("Got '%s' from database.\n"%this._db.statusmessage())
+			row=this._db.fetchone()
+			if row != None and row[0] != None:
+				writeline('%s 302:%s\n'%(req[0],row[0]))
+			else:
+				writeline('%s -\n'%req[0])
+	def check(this,line):
+		request=re.compile('^([0-9]+)\ (http|ftp):\/\/([-\w.:]+)\/([^ ]*)\ ([0-9.]+)\/(-|[\w\.]+)\ (-|\w+)\ (-|GET|HEAD|POST).*$').match(line)
+		if request:
+			site=request.group(3)
+			ip_address=request.group(5)
+			id=request.group(1)
+			this._lock_queue.acquire()
+			this._queue.append((id,site,ip_address))
+			if this._lock.locked():
+				this._lock.release()
+			this._lock_queue.release()
+			this._log.info('request %s queued (%s)\n'%(id,line))
+		else:
+			this._log.info('bad request\n')
+			writeline(line)
+
+def writeline(string):
+	log.info('sending: %s'%string)
+	sys.stdout.write(string)
+	sys.stdout.flush()
+
+log=Logger(False)
+db=tagDB()
+checker=CheckerThread(db,log)
+
+while True:
+	line=sys.stdin.readline()
+	if len(line)==0:
+		break
+	checker.check(line)
