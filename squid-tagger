@@ -23,34 +23,27 @@ class Logger:
 			self._syslog.syslog(self._syslog.LOG_NOTICE, message)
 
 class tagDB:
-	__slots__ = frozenset(['_prepared', '_db'])
+	__slots__ = frozenset(['_prepared', '_check_stmt', '_db'])
 
 	def __init__(self):
 		self._prepared = set()
 		self._db = False
+		self._check_stmt = self._curs().prepare("select redirect_url from site_rule where site <@ tripdomain($1) and netmask >> $2::text::inet limit 1")
 
 	def _curs(self):
 		if not self._db:
 			config.section('database')
-			# needs thinking
-			#connector = postgresql.api.Connector(
-				#user = config['user'], password = config['password'],
-				#database = config['database'], 
 			self._db = postgresql.open(
 				'pq://{0}:{1}@{2}/{3}'.format(
 					config['user'],
 					config['password'],
 					config['host'],
 					config['database'],
-			))
+			) )
 		return(self._db)
 
 	def check(self, ip_address, site):
-		# doesn't work for inet
-		#stmt = self._curs().prepare("select redirect_url from site_rules where site <@ tripdomain($1) and netmask >> '$2' limit 1")
-		#result = stmt(site, ip_address)
-		stmt = self._curs().prepare("select redirect_url from site_rules where site <@ tripdomain('{0}') and netmask >> '{1}' limit 1".format(site, ip_address))
-		result = stmt()
+		result = self._check_stmt(site, ip_address)
 		if len(result) > 0:
 			return result[0]
 		else:
