@@ -7,7 +7,7 @@ class Logger:
 
 	def __init__(self):
 		config.section('log')
-		if config['silent'] = 'yes':
+		if config['silent'] == 'yes':
 			self._silent = True
 		else:
 			import syslog
@@ -46,11 +46,6 @@ class tagDB:
 	def check(self, ip_address, site):
 		result = self._check_stmt(site, ip_address)
 		if len(result) > 0:
-			if result[1]:
-				if re.compile(result[1]).match(url_path):
-					return result[0]
-				else:
-					return None
 			return result[0]
 		else:
 			return None
@@ -78,6 +73,11 @@ class CheckerThread:
 			self._log.info('trying %s\n'%req[1])
 			row = self._db.check(req[2], req[1])
 			if row != None and row[0] != None:
+				if row[1] != None:
+					if re.compile(row[1]).match(req[3]):
+						writeline('%s 302:%s\n'%(req[0], row[0]))
+					else:
+						writeline('%s -\n'%req[0])
 				writeline('%s 302:%s\n'%(req[0], row[0]))
 			else:
 				writeline('%s -\n'%req[0])
@@ -85,11 +85,12 @@ class CheckerThread:
 	def check(self, line):
 		request = re.compile('^([0-9]+)\ (http|ftp):\/\/([-\w.:]+)\/([^ ]*)\ ([0-9.]+)\/(-|[\w\.]+)\ (-|\w+)\ (-|GET|HEAD|POST).*$').match(line)
 		if request:
-			site = request.group(3)
-			ip_address = request.group(5)
 			id = request.group(1)
+			site = request.group(3)
+			url_path = request.group(4)
+			ip_address = request.group(5)
 			self._lock_queue.acquire()
-			self._queue.append((id, site, ip_address))
+			self._queue.append((id, site, ip_address, url_path))
 			if self._lock.locked():
 				self._lock.release()
 			self._lock_queue.release()
