@@ -5,8 +5,9 @@ import configparser, optparse, os, postgresql.api, re, sys, _thread
 class Logger:
 	__slots__ = frozenset(['_silent', '_syslog'])
 
-	def __init__(self, silent = True):
-		if silent:
+	def __init__(self):
+		config.section('log')
+		if config['silent'] = 'yes':
 			self._silent = True
 		else:
 			import syslog
@@ -28,7 +29,7 @@ class tagDB:
 	def __init__(self):
 		self._prepared = set()
 		self._db = False
-		self._check_stmt = self._curs().prepare("select redirect_url from site_rule where site <@ tripdomain($1) and netmask >> $2::text::inet limit 1")
+		self._check_stmt = self._curs().prepare("select redirect_url, regexp from site_rule where site <@ tripdomain($1) and netmask >> $2::text::inet order by array_length(site, 1) desc limit 1")
 
 	def _curs(self):
 		if not self._db:
@@ -45,6 +46,11 @@ class tagDB:
 	def check(self, ip_address, site):
 		result = self._check_stmt(site, ip_address)
 		if len(result) > 0:
+			if result[1]:
+				if re.compile(result[1]).match(url_path):
+					return result[0]
+				else:
+					return None
 			return result[0]
 		else:
 			return None
@@ -109,7 +115,7 @@ class Config:
 		(options, args) = parser.parse_args()
 
 		if not os.access(options.config, os.R_OK):
-			print("Can't read {0}: exitting".format(options.config))
+			print("Can't read {}: exitting".format(options.config))
 			sys.exit(2)
 
 		self._config = configparser.ConfigParser()
@@ -123,7 +129,7 @@ class Config:
 
 config = Config()
 
-log = Logger(False)
+log = Logger()
 db = tagDB()
 checker = CheckerThread(db,log)
 

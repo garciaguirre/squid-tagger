@@ -167,7 +167,8 @@ CREATE UNIQUE INDEX tag_s ON tag USING btree (tag);
 CREATE TABLE urls (
 	date_added timestamp without time zone DEFAULT ('now'::text)::timestamp(0) without time zone NOT NULL,
 	id_site smallint NOT NULL,
-	id_tag smallint NOT NULL
+	id_tag smallint NOT NULL,
+	regex text
 );
 
 ALTER TABLE ONLY urls
@@ -178,15 +179,15 @@ CREATE UNIQUE INDEX urls_id_site ON urls USING btree (id_site);
 -- rule to join all tables into one to simplify access
 -- automaticall uses current day and time data
 CREATE VIEW site_rule AS
-SELECT a.redirect_url, a.netmask, b.site
+SELECT a.redirect_url, a.netmask, b.site, b.regexp
 FROM ((
 	SELECT rules.redirect_url, tag.tag AS rule_tag, rules.netmask
-	FROM (rules NATURAL JOIN tag)
-	WHERE ((((('now'::text)::time without time zone >= rules.from_time)
-		AND (('now'::text)::time without time zone <= rules.to_time))
-		AND (date_part('dow'::text, now()) >= (rules.from_weekday)::double precision))
-		AND (date_part('dow'::text, now()) <= (rules.to_weekday)::double precision))
+	FROM rules NATURAL JOIN tag
+	WHERE ('now'::text)::time without time zone >= rules.from_time
+		AND ('now'::text)::time without time zone <= rules.to_time
+		AND date_part('dow'::text, now()) >= (rules.from_weekday)::double precision
+		AND date_part('dow'::text, now()) <= (rules.to_weekday)::double precision
 ) a JOIN (
-	SELECT site.site, tag.tag AS url_tag
-	FROM ((urls NATURAL JOIN tag) NATURAL JOIN site)
-) b ON ((b.url_tag && a.rule_tag)));
+	SELECT site.site, tag.tag AS url_tag, regexp
+	FROM urls NATURAL JOIN tag NATURAL JOIN site
+) b ON (b.url_tag && a.rule_tag));
