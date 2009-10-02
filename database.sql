@@ -4,7 +4,7 @@ CREATE FUNCTION mark(domain text, new_tag text) RETURNS void
     LANGUAGE plpgsql STRICT
     AS $$
 declare
- my_site varchar[];
+ my_site text[];
  my_site_id smallint;
  my_tag text[];
  my_tag_id smallint;
@@ -19,7 +19,7 @@ begin
 
  select tag from urls natural join tag where id_site = my_site_id into my_tag;
  if not found then
-  my_tag := new_tag;
+  my_tag := array[new_tag];
  else
   select array_agg(tag) from (select distinct unnest(my_tag || array[new_tag]) as tag order by tag asc) a into 
 my_tag;
@@ -45,7 +45,7 @@ begin
 
  select tag from urls natural join tag where id_site = my_site_id into my_tag;
  if not found then
-  my_tag := new_tag;
+  my_tag := array[new_tag];
  else
   select array_agg(tag) from (select distinct unnest(my_tag || array[new_tag]) as tag order by tag asc) a into 
 my_tag;
@@ -61,7 +61,7 @@ my_tag;
  insert into urls (id_site, id_tag) values (my_site_id, my_tag_id);
 end;$$;
 
-CREATE FUNCTION tripdomain(url character varying) RETURNS character varying[]
+CREATE FUNCTION tripdomain(url text) RETURNS text[]
     LANGUAGE plpgsql IMMUTABLE STRICT
     AS $_$
 declare
