@@ -3,24 +3,23 @@
 import configparser, optparse, os, postgresql.api, re, sys, _thread
 
 class Logger:
-	__slots__ = frozenset(['_silent', '_syslog'])
+	__slots__ = frozenset(['_syslog'])
 
 	def __init__(self):
 		config.section('log')
 		if config['silent'] == 'yes':
-			self._silent = True
+			self._syslog = None
 		else:
 			import syslog
 			self._syslog = syslog
 			self._syslog.openlog('squidTag')
-			self._silent = False
 
 	def info(self, message):
-		if not self._silent:
+		if not self._syslog:
 			self._syslog.syslog(self._syslog.LOG_INFO, message)
 
 	def notice(self, message):
-		if not self._silent:
+		if not self._syslog:
 			self._syslog.syslog(self._syslog.LOG_NOTICE, message)
 
 class tagDB:
@@ -74,11 +73,13 @@ class CheckerThread:
 			row = self._db.check(req[2], req[1])
 			if row != None and row[0] != None:
 				if row[1] != None:
+					self._log.info('trying regexp "{0}" versus "{1}"\n'.format(row[1], req[3]))
 					if re.compile(row[1]).match(req[3]):
 						writeline('%s 302:%s\n'%(req[0], row[0]))
 					else:
 						writeline('%s -\n'%req[0])
-				writeline('%s 302:%s\n'%(req[0], row[0]))
+				else:
+					writeline('%s 302:%s\n'%(req[0], row[0]))
 			else:
 				writeline('%s -\n'%req[0])
 
