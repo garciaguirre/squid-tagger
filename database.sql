@@ -1,5 +1,20 @@
 CREATE PROCEDURAL LANGUAGE plpgsql;
 
+-- general array sorting functions
+-- sorts array
+CREATE FUNCTION sort(original anyarray) RETURNS anyarray
+	LANGUAGE sql IMMUTABLE STRICT
+	AS $_$
+select array_agg(item) as result from (select unnest($1) as item order by item) a;
+$_$;
+
+-- sorts array and removes duplicates
+CREATE FUNCTION usort(original anyarray) RETURNS anyarray
+	LANGUAGE sql IMMUTABLE STRICT
+	AS $_$
+select array_agg(item) as result from (select distinct unnest($1) as item order by item) a;
+$_$;
+
 -- this function adds tag to domain
 CREATE FUNCTION mark(domain text, new_tag text) RETURNS void
 	LANGUAGE plpgsql STRICT
@@ -27,9 +42,7 @@ begin
 		my_tag := array[new_tag];
 	else
 		-- joining tags
-		select array_agg(tag)
-			from (select distinct unnest(my_tag || array[new_tag]) as tag order by tag asc) a
-			into my_tag;
+		select usort(my_tag || array[new_tag]) into my_tag;
 		-- deleting old site specification
 		delete from urls where id_site = my_site_id;
 	end if;
@@ -43,7 +56,8 @@ begin
 
 	-- adding new site specification
 	insert into urls (id_site, id_tag) values (my_site_id, my_tag_id);
-end;$$;
+end;
+$$;
 
 -- this function adds tag to site by site id
 CREATE FUNCTION mark(my_site_id smallint, new_tag text) RETURNS void
@@ -62,9 +76,7 @@ begin
 		my_tag := array[new_tag];
 	else
 		-- joining tags
-		select array_agg(tag)
-			from (select distinct unnest(my_tag || array[new_tag]) as tag order by tag asc) a
-			into my_tag;
+		select usort(my_tag || array[new_tag]) into my_tag;
 		-- deleting old site specification
 		delete from urls where id_site = my_site_id;
 	end if;
@@ -78,7 +90,8 @@ begin
 
 	-- adding new site specification
 	insert into urls (id_site, id_tag) values (my_site_id, my_tag_id);
-end;$$;
+end;
+$$;
 
 -- transforms domain into ordered array for indexing
 CREATE FUNCTION tripdomain(url text) RETURNS text[]
@@ -144,9 +157,9 @@ CREATE TABLE site (
 ALTER TABLE ONLY site
 	ADD CONSTRAINT site_id PRIMARY KEY (id_site);
 
-CREATE UNIQUE INDEX site_s ON site USING btree (site);
+CREATE UNIQUE INDEX site_s ON site (usort(site));
 
-CREATE INDEX site_sg ON site USING gin (site);
+CREATE INDEX site_g ON site USING gin (site);
 
 -- table to hold tag combinations
 CREATE TABLE tag (
@@ -157,9 +170,9 @@ CREATE TABLE tag (
 ALTER TABLE ONLY tag
 	ADD CONSTRAINT tag_id PRIMARY KEY (id_tag);
 
-CREATE INDEX tag_g ON tag USING gin (tag);
+CREATE UNIQUE INDEX tag_s ON tag (usort(tag));
 
-CREATE UNIQUE INDEX tag_s ON tag USING btree (tag);
+CREATE INDEX tag_g ON tag USING gin (tag);
 
 -- table to hold tag - site links
 CREATE TABLE urls (
