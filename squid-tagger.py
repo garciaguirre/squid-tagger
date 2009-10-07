@@ -15,11 +15,11 @@ class Logger:
 			self._syslog.openlog('squidTag')
 
 	def info(self, message):
-		if not self._syslog:
+		if self._syslog:
 			self._syslog.syslog(self._syslog.LOG_INFO, message)
 
 	def notice(self, message):
-		if not self._syslog:
+		if self._syslog:
 			self._syslog.syslog(self._syslog.LOG_NOTICE, message)
 
 class tagDB:

@@ -136,11 +136,9 @@ ALTER TABLE ONLY rules
 	ADD CONSTRAINT rules_pkey PRIMARY KEY (netmask);
 
 -- table to hold site arrays
--- maybe full original domain should be added with trigger to leave tripdomain function away
 CREATE TABLE site (
 	id_site serial,
-	site text[] NOT NULL,
-	domain not null
+	site text[] NOT NULL
 );
 
 ALTER TABLE ONLY site
@@ -175,6 +173,8 @@ ALTER TABLE ONLY urls
 	ADD CONSTRAINT urls_pkey PRIMARY KEY (date_added);
 
 CREATE UNIQUE INDEX urls_id_site ON urls USING btree (id_site);
+
+CREATE UNIQUE INDEX urls_id_tag ON urls USING btree (id_tag);
 
 -- rule to join all tables into one to simplify access
 -- automaticall uses current day and time data
