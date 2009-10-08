@@ -16,80 +16,77 @@ select array_agg(item) as result from (select distinct unnest($1) as item order 
 $_$;
 
 -- this function adds tag to domain
-CREATE FUNCTION mark(domain text, new_tag text) RETURNS void
+CREATE or replace FUNCTION mark(domain text, new_tag text) RETURNS void
 	LANGUAGE plpgsql STRICT
 	AS $$
 declare
 	my_site text[];
-	my_site_id smallint;
+	my_id_site smallint;
 	my_tag text[];
-	my_tag_id smallint;
+	my_id_tag smallint;
 begin
 	my_site := tripdomain(domain);
 
 	-- selecting site id from table or adding site to the table
-	select id_site from site where my_site = site into my_site_id;
+	select id_site from site where my_site = site into my_id_site;
 	if not found then
 		insert into site (site) values (my_site);
-		select id_site from site where my_site = site into my_site_id;
+		select id_site from site where my_site = site into my_id_site;
 	end if;
 
 	-- selecting tags site already have and adding new tag to them
 	-- note that tags should be sorted to eliminate permutations
-	select tag from urls natural join tag where id_site = my_site_id into my_tag;
+	select coalesce(tag, '{}'::text[]) from urls natural join tag where id_site = my_id_site into my_tag;
 	if not found then
 		-- no records found - creating new tag
+		insert into urls (id_site, id_tag) values (my_id_site, get_tag(array[new_tag]));
 		my_tag := array[new_tag];
 	else
 		-- joining tags
 		select usort(my_tag || array[new_tag]) into my_tag;
 		-- deleting old site specification
-		delete from urls where id_site = my_site_id;
+		update urls set id_tag = get_tag(my_tag || array[new_tag]) where id_site = my_id_site;
 	end if;
-
-	-- selecting new tag id or adding tag to the table
-	select id_tag from tag where my_tag = tag into my_tag_id;
-	if not found then
-		insert into tag (tag) values(my_tag);
-		select id_tag from tag where my_tag = tag into my_tag_id;
-	end if;
-
-	-- adding new site specification
-	insert into urls (id_site, id_tag) values (my_site_id, my_tag_id);
 end;
 $$;
 
 -- this function adds tag to site by site id
-CREATE FUNCTION mark(my_site_id smallint, new_tag text) RETURNS void
+CREATE or replace FUNCTION mark(my_id_site integer, new_tag text) RETURNS void
 	LANGUAGE plpgsql STRICT
 	AS $$
 declare
 	-- maybe check should be added to make sure supplied site id really exists
 	my_tag text[];
-	my_tag_id smallint;
+	my_tag_id integer;
 begin
 	-- selecting tags site already have and adding new tag to them
 	-- note that tags should be sorted to eliminate permutations
-	select tag from urls natural join tag where id_site = my_site_id into my_tag;
+	select coalesce(tag, '{}'::text[]) from urls natural left join tag where id_site = my_id_site into my_tag;
 	if not found then
 		-- no records found - creating new tag
-		my_tag := array[new_tag];
+		insert into urls (id_site, id_tag) values (my_id_site, get_tag(array[new_tag]));
 	else
 		-- joining tags
 		select usort(my_tag || array[new_tag]) into my_tag;
-		-- deleting old site specification
-		delete from urls where id_site = my_site_id;
+		-- updating existing record
+		update urls set id_tag = get_tag(my_tag || array[new_tag]) where id_site = my_id_site;
 	end if;
+end;
+$$;
 
-	-- selecting new tag id or adding tag to the table
-	select id_tag from tag where my_tag = tag into my_tag_id;
+-- this function returns id of tag array
+create or replace function get_tag(my_tag text[]) returns integer
+	language plpgsql strict
+	as $$
+declare
+	tag_id integer;
+begin
+	select id_tag from tag where usort(my_tag) = tag into tag_id;
 	if not found then
-		insert into tag (tag) values(my_tag);
-		select id_tag from tag where my_tag = tag into my_tag_id;
+		insert into tag (tag) values (usort(my_tag));
+		select id_tag from tag where usort(my_tag) = tag into tag_id;
 	end if;
-
-	-- adding new site specification
-	insert into urls (id_site, id_tag) values (my_site_id, my_tag_id);
+	return tag_id;
 end;
 $$;
 
@@ -155,7 +152,7 @@ CREATE TABLE site (
 );
 
 ALTER TABLE ONLY site
-	ADD CONSTRAINT site_id PRIMARY KEY (id_site);
+	ADD CONSTRAINT id_site PRIMARY KEY (id_site);
 
 CREATE UNIQUE INDEX site_s ON site (usort(site));
 
