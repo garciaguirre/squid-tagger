@@ -28,7 +28,7 @@ class tagDB:
 	def __init__(self):
 		self._prepared = set()
 		self._db = False
-		self._check_stmt = self._curs().prepare("select redirect_url, regexp from site_rule where site <@ tripdomain($1) and netmask >> $2::text::inet order by array_length(site, 1) desc limit 1")
+		self._check_stmt = self._curs().prepare("select redirect_url, regexp from site_rule where site <@ tripdomain($1) and netmask >> $2::text::inet order by array_length(site, 1) desc")
 
 	def _curs(self):
 		if not self._db:
@@ -43,11 +43,7 @@ class tagDB:
 		return(self._db)
 
 	def check(self, ip_address, site):
-		result = self._check_stmt(site, ip_address)
-		if len(result) > 0:
-			return result[0]
-		else:
-			return None
+		return self._check_stmt(site, ip_address)
 
 class CheckerThread:
 	__slots__ = frozenset(['_db', '_lock', '_lock_queue', '_log', '_queue'])
@@ -55,6 +51,10 @@ class CheckerThread:
 	def __init__(self, db, log):
 		self._db = db
 		self._log = log
+		# Spin lock. Loop acquires it on start then releases it when holding queue
+		# lock. This way the thread proceeds without stops while queue has data and
+		# gets stalled when no data present. The lock is released by queue writer
+		# after storing something into the queue
 		self._lock = _thread.allocate_lock()
 		self._lock_queue = _thread.allocate_lock()
 		self._lock.acquire()
@@ -65,23 +65,26 @@ class CheckerThread:
 		while True:
 			self._lock.acquire()
 			self._lock_queue.acquire()
+			# yes this should be written this way, and yes, this is why I hate threading
 			if len(self._queue) > 1 and self._lock.locked():
 				self._lock.release()
 			req = self._queue.pop(0)
 			self._lock_queue.release()
 			self._log.info('trying %s\n'%req[1])
-			row = self._db.check(req[2], req[1])
-			if row != None and row[0] != None:
-				if row[1] != None:
-					self._log.info('trying regexp "{0}" versus "{1}"\n'.format(row[1], req[3]))
-					if re.compile(row[1]).match(req[3]):
-						writeline('%s 302:%s\n'%(req[0], row[0]))
+			result = self._db.check(req[2], req[1])
+			for row in result:
+				if row != None and row[0] != None:
+					if row[1] != None:
+						self._log.info('trying regexp "{0}" versus "{1}"\n'.format(row[1], req[3]))
+						if re.compile(row[1]).match(req[3]):
+							writeline('%s 302:%s\n'%(req[0], row[0]))
+							break
+						else:
+							continue
 					else:
-						writeline('%s -\n'%req[0])
-				else:
-					writeline('%s 302:%s\n'%(req[0], row[0]))
-			else:
-				writeline('%s -\n'%req[0])
+						writeline('%s 302:%s\n'%(req[0], row[0]))
+						break
+			writeline('%s -\n'%req[0])
 
 	def check(self, line):
 		request = re.compile('^([0-9]+)\ (http|ftp):\/\/([-\w.:]+)\/([^ ]*)\ ([0-9.]+)\/(-|[\w\.]+)\ (-|\w+)\ (-|GET|HEAD|POST).*$').match(line)
