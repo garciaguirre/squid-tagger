@@ -152,9 +152,9 @@ CREATE TABLE site (
 );
 
 ALTER TABLE ONLY site
-	ADD CONSTRAINT id_site PRIMARY KEY (id_site);
+	ADD CONSTRAINT site_pkey PRIMARY KEY (id_site);
 
-CREATE UNIQUE INDEX site_s ON site (usort(site));
+CREATE UNIQUE INDEX site_u ON site (usort(site));
 
 CREATE INDEX site_g ON site USING gin (site);
 
@@ -165,9 +165,9 @@ CREATE TABLE tag (
 );
 
 ALTER TABLE ONLY tag
-	ADD CONSTRAINT tag_id PRIMARY KEY (id_tag);
+	ADD CONSTRAINT tag_pkey PRIMARY KEY (id_tag);
 
-CREATE UNIQUE INDEX tag_s ON tag (usort(tag));
+CREATE UNIQUE INDEX tag_u ON tag (usort(tag));
 
 CREATE INDEX tag_g ON tag USING gin (tag);
 
