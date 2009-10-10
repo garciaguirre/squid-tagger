@@ -90,6 +90,22 @@ begin
 end;
 $$;
 
+-- this function returns id of site array
+create or replace function get_site(my_site text[]) returns integer
+	language plpgsql strict
+	as $$
+declare
+	site_id integer;
+begin
+	select id_site from site where my_site = site into site_id;
+	if not found then
+		insert into site (site) values (my_site);
+		select id_site from site where my_site = site into site_id;
+	end if;
+	return site_id;
+end;
+$$;
+
 -- transforms domain into ordered array for indexing
 CREATE FUNCTION tripdomain(url text) RETURNS text[]
 	LANGUAGE plpgsql IMMUTABLE STRICT
