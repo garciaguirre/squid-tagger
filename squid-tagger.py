@@ -72,30 +72,32 @@ class CheckerThread:
 			self._lock_queue.release()
 			self._log.info('trying {}\n'.format(req[1]))
 			result = self._db.check(req[2], req[1])
+			#reply = '{}://{}/{}'.format(req[4], req[1], req[3])
+			reply = '-'
 			for row in result:
 				if row != None and row[0] != None:
 					if row[1] != None:
 						self._log.info('trying regexp "{}" versus "{}"\n'.format(row[1], req[3]))
 						if re.compile(row[1]).match(req[3]):
-							writeline('{} 302:{}\n'.format(req[0], row[0]))
+							reply = '302:' + row[0]
 							break
 						else:
 							continue
 					else:
-						writeline('{} 302:{}\n'.format(req[0], row[0]))
+						reply = '302:' + row[0]
 						break
-			writeline('{} {}://{}/{}\n'.format(req[0], req[4], req[1], req[3]))
+			writeline('{} {}\n'.format(req[0], reply))
 
 	def check(self, line):
 		request = re.compile('^([0-9]+)\ (http|ftp):\/\/([-\w.:]+)\/([^ ]*)\ ([0-9.]+)\/(-|[\w\.]+)\ (-|\w+)\ (-|GET|HEAD|POST).*$').match(line)
 		if request:
 			id = request.group(1)
-			proto = request.group(2)
+			#proto = request.group(2)
 			site = request.group(3)
 			url_path = request.group(4)
 			ip_address = request.group(5)
 			self._lock_queue.acquire()
-			self._queue.append((id, site, ip_address, url_path, proto))
+			self._queue.append((id, site, ip_address, url_path))
 			if self._lock.locked():
 				self._lock.release()
 			self._lock_queue.release()
