@@ -34,7 +34,7 @@ class tagDB:
 		if not self._db:
 			config.section('database')
 			self._db = postgresql.open(
-				'pq://{0}:{1}@{2}/{3}'.format(
+				'pq://{}:{}@{}/{}'.format(
 					config['user'],
 					config['password'],
 					config['host'],
@@ -70,41 +70,42 @@ class CheckerThread:
 				self._lock.release()
 			req = self._queue.pop(0)
 			self._lock_queue.release()
-			self._log.info('trying %s\n'%req[1])
+			self._log.info('trying {}\n'.format(req[1]))
 			result = self._db.check(req[2], req[1])
 			for row in result:
 				if row != None and row[0] != None:
 					if row[1] != None:
-						self._log.info('trying regexp "{0}" versus "{1}"\n'.format(row[1], req[3]))
+						self._log.info('trying regexp "{}" versus "{}"\n'.format(row[1], req[3]))
 						if re.compile(row[1]).match(req[3]):
-							writeline('%s 302:%s\n'%(req[0], row[0]))
+							writeline('{} 302:{}\n'.format(req[0], row[0]))
 							break
 						else:
 							continue
 					else:
-						writeline('%s 302:%s\n'%(req[0], row[0]))
+						writeline('{} 302:{}\n'.format(req[0], row[0]))
 						break
-			writeline('%s -\n'%req[0])
+			writeline('{} {}://{}/{}\n'.format(req[0], req[4], req[1], req[3]))
 
 	def check(self, line):
 		request = re.compile('^([0-9]+)\ (http|ftp):\/\/([-\w.:]+)\/([^ ]*)\ ([0-9.]+)\/(-|[\w\.]+)\ (-|\w+)\ (-|GET|HEAD|POST).*$').match(line)
 		if request:
 			id = request.group(1)
+			proto = request.group(2)
 			site = request.group(3)
 			url_path = request.group(4)
 			ip_address = request.group(5)
 			self._lock_queue.acquire()
-			self._queue.append((id, site, ip_address, url_path))
+			self._queue.append((id, site, ip_address, url_path, proto))
 			if self._lock.locked():
 				self._lock.release()
 			self._lock_queue.release()
-			self._log.info('request %s queued (%s)\n'%(id, line))
+			self._log.info('request {} queued ({})\n'.format(id, line))
 		else:
 			self._log.info('bad request\n')
 			writeline(line)
 
 def writeline(string):
-	log.info('sending: %s'%string)
+	log.info('sending: ' + string)
 	sys.stdout.write(string)
 	sys.stdout.flush()
 
