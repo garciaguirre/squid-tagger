@@ -17,37 +17,9 @@ $_$;
 
 -- this function adds tag to domain
 CREATE or replace FUNCTION mark(domain text, new_tag text) RETURNS void
-	LANGUAGE plpgsql STRICT
+	LANGUAGE sql immutable STRICT
 	AS $$
-declare
-	my_site text[];
-	my_id_site smallint;
-	my_tag text[];
-	my_id_tag smallint;
-begin
-	my_site := tripdomain(domain);
-
-	-- selecting site id from table or adding site to the table
-	select id_site from site where my_site = site into my_id_site;
-	if not found then
-		insert into site (site) values (my_site);
-		select id_site from site where my_site = site into my_id_site;
-	end if;
-
-	-- selecting tags site already have and adding new tag to them
-	-- note that tags should be sorted to eliminate permutations
-	select coalesce(tag, '{}'::text[]) from urls natural join tag where id_site = my_id_site into my_tag;
-	if not found then
-		-- no records found - creating new tag
-		insert into urls (id_site, id_tag) values (my_id_site, get_tag(array[new_tag]));
-		my_tag := array[new_tag];
-	else
-		-- joining tags
-		select usort(my_tag || array[new_tag]) into my_tag;
-		-- deleting old site specification
-		update urls set id_tag = get_tag(my_tag || array[new_tag]) where id_site = my_id_site;
-	end if;
-end;
+select mark(get_site($1), $2) as result;
 $$;
 
 -- this function adds tag to site by site id
@@ -90,7 +62,13 @@ begin
 end;
 $$;
 
--- this function returns id of site array
+-- this functions returns id of site
+create or replace function get_site(domain text) returns integer
+	language sql immutable strict
+	as $$
+select get_site(tripdomain($1)) as result;
+$$;
+
 create or replace function get_site(my_site text[]) returns integer
 	language plpgsql strict
 	as $$
