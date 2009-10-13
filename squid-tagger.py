@@ -111,9 +111,19 @@ def writeline(string):
 	sys.stdout.write(string)
 	sys.stdout.flush()
 
+# this classes processes config file and substitutes default values
 class Config:
-	__slots__ = frozenset(['_config', '_section'])
+	__slots__ = frozenset(['_config', '_defaults', '_section'])
+	_defaults = {
+		'log': {
+			'silent': 'no',
+		},
+		'database': {
+			'host': 'localhost',
+			'database': 'squidTag',
+	},}
 
+	# function to read in config file
 	def __init__(self):
 		parser = optparse.OptionParser()
 		parser.add_option('-c', '--config', dest = 'config',
@@ -129,12 +139,26 @@ class Config:
 		self._config = configparser.ConfigParser()
 		self._config.readfp(open(options.config))
 
+	# function to select config file section or create one
 	def section(self, section):
+		if not self._config.has_section(section):
+			self._config.add_section(section)
 		self._section = section
 
+	# function to get config parameter, if parameter doesn't exists the default
+	# value or None is substituted
 	def __getitem__(self, name):
+		if not self._config.has_option(self._section, name):
+			if self._default.has_key(self._section):
+				if self._default[self._section].has_key(name):
+					self._config.set(self._section, name, self._default[self._section][name])
+				else:
+					self._config.set(self._section, name, None)
+			else:
+				self._config.set(self._section, name, None)
 		return self._config.get(self._section, name)
 
+# initializing and reading in config file
 config = Config()
 
 log = Logger()
