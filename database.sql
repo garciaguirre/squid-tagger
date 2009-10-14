@@ -2,18 +2,40 @@ CREATE PROCEDURAL LANGUAGE plpgsql;
 
 -- general array sorting functions
 -- sorts array
-CREATE FUNCTION sort(original anyarray) RETURNS anyarray
+CREATE or replace FUNCTION sort(original anyarray) RETURNS anyarray
 	LANGUAGE sql IMMUTABLE STRICT
 	AS $_$
 select array_agg(item) as result from (select unnest($1) as item order by item) a;
 $_$;
 
 -- sorts array and removes duplicates
-CREATE FUNCTION usort(original anyarray) RETURNS anyarray
+CREATE or replace FUNCTION usort(original anyarray) RETURNS anyarray
 	LANGUAGE sql IMMUTABLE STRICT
 	AS $_$
 select array_agg(item) as result from (select distinct unnest($1) as item order by item) a;
 $_$;
+
+-- this functions returns id of site
+create or replace function get_site(my_site text[]) returns integer
+	language plpgsql strict
+	as $$
+declare
+	site_id integer;
+begin
+	select id_site from site where my_site = site into site_id;
+	if not found then
+		insert into site (site) values (my_site);
+		select id_site from site where my_site = site into site_id;
+	end if;
+	return site_id;
+end;
+$$;
+
+create or replace function get_site(domain text) returns integer
+	language sql immutable strict
+	as $$
+select get_site(tripdomain($1)) as result;
+$$;
 
 -- this function adds tag to domain
 CREATE or replace FUNCTION mark(domain text, new_tag text) RETURNS void
@@ -62,30 +84,8 @@ begin
 end;
 $$;
 
--- this functions returns id of site
-create or replace function get_site(domain text) returns integer
-	language sql immutable strict
-	as $$
-select get_site(tripdomain($1)) as result;
-$$;
-
-create or replace function get_site(my_site text[]) returns integer
-	language plpgsql strict
-	as $$
-declare
-	site_id integer;
-begin
-	select id_site from site where my_site = site into site_id;
-	if not found then
-		insert into site (site) values (my_site);
-		select id_site from site where my_site = site into site_id;
-	end if;
-	return site_id;
-end;
-$$;
-
 -- transforms domain into ordered array for indexing
-CREATE FUNCTION tripdomain(url text) RETURNS text[]
+CREATE or replace FUNCTION tripdomain(url text) RETURNS text[]
 	LANGUAGE plpgsql IMMUTABLE STRICT
 	AS $_$
 declare
@@ -106,7 +106,7 @@ begin
 end;$_$;
 
 -- transforms ordered array into domain
-create function untrip(site text[]) returns text
+create or replace function untrip(site text[]) returns text
 	language plpgsql immutable strict
 	as $_$
 declare
