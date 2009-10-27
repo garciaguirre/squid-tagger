@@ -38,14 +38,14 @@ select get_site(tripdomain($1)) as result;
 $$;
 
 -- this function adds tag to domain
-CREATE or replace FUNCTION mark(domain text, new_tag text) RETURNS void
+CREATE or replace FUNCTION mark(domain text, new_tag text) RETURNS integer
 	LANGUAGE sql immutable STRICT
 	AS $$
 select mark(get_site($1), $2) as result;
 $$;
 
 -- this function adds tag to site by site id
-CREATE or replace FUNCTION mark(my_id_site integer, new_tag text) RETURNS void
+CREATE or replace FUNCTION mark(my_id_site integer, new_tag text) RETURNS integer
 	LANGUAGE plpgsql STRICT
 	AS $$
 declare
@@ -65,6 +65,7 @@ begin
 		-- updating existing record
 		update urls set id_tag = get_tag(my_tag || array[new_tag]) where id_site = my_id_site;
 	end if;
+	return my_id_site;
 end;
 $$;
 
