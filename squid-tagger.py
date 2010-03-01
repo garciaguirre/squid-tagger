@@ -64,11 +64,14 @@ class Checker:
 			if row != None and row[0] != None:
 				if row[1] != None:
 					self._log.info('trying regexp "{}" versus "{}"\n'.format(row[1], url_path))
-					if re.compile(row[1]).match(url_path):
-						reply = '302:' + row[0]
-						break
-					else:
-						continue
+					try:
+						if re.compile(row[1]).match(url_path):
+							reply = '302:' + row[0]
+							break
+						else:
+							continue
+					except:
+						self._log.info("can't compile regexp")
 				else:
 					reply = '302:' + row[0]
 					break
