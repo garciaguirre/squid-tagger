@@ -78,6 +78,32 @@ create or replace function get_site(domain text) returns integer
 select get_site(tripdomain($1)) as result;
 $$;
 
+-- this function inserts or updates record with tags to site by site id with regexp
+CREATE or replace FUNCTION mark(my_id_site integer, my_id_tag integer, my_regexp text) RETURNS integer
+	LANGUAGE plpgsql STRICT
+	AS $$
+declare
+	-- maybe check should be added to make sure supplied site id really exists
+	my_tag text[];
+begin
+	-- selecting tags site already have and adding new tag to them
+	-- note that tags should be sorted to eliminate permutations
+	select coalesce(tag, '{}'::text[]) from urls natural left join tag
+		where id_site = my_id_site and regexp = my_regexp into my_tag;
+	if not found then
+		-- no records found - creating new tag
+		insert into urls (id_site, id_tag, regexp) values (my_id_site, my_id_tag, my_regexp);
+	else
+		-- joining tags
+		select usort(my_tag || tag) from tag where id_tag = my_id_tag into my_tag;
+		-- updating existing record
+		update urls set id_tag = get_tag(my_tag)
+			where id_site = my_id_site and regexp = my_regexp;
+	end if;
+	return my_id_site;
+end;
+$$;
+
 -- this function adds tag to site by site id
 CREATE or replace FUNCTION mark(my_id_site integer, new_tag text) RETURNS integer
 	LANGUAGE plpgsql STRICT
@@ -85,11 +111,11 @@ CREATE or replace FUNCTION mark(my_id_site integer, new_tag text) RETURNS intege
 declare
 	-- maybe check should be added to make sure supplied site id really exists
 	my_tag text[];
-	my_tag_id integer;
 begin
 	-- selecting tags site already have and adding new tag to them
 	-- note that tags should be sorted to eliminate permutations
-	select coalesce(tag, '{}'::text[]) from urls natural left join tag where id_site = my_id_site into my_tag;
+	select coalesce(tag, '{}'::text[]) from urls natural left join tag
+		where id_site = my_id_site and regexp is null into my_tag;
 	if not found then
 		-- no records found - creating new tag
 		insert into urls (id_site, id_tag) values (my_id_site, get_tag(array[new_tag]));
@@ -97,7 +123,7 @@ begin
 		-- joining tags
 		select usort(my_tag || array[new_tag]) into my_tag;
 		-- updating existing record
-		update urls set id_tag = get_tag(my_tag || array[new_tag]) where id_site = my_id_site;
+		update urls set id_tag = get_tag(my_tag) where id_site = my_id_site and regexp is null;
 	end if;
 	return my_id_site;
 end;
@@ -108,6 +134,20 @@ CREATE or replace FUNCTION mark(domain text, new_tag text) RETURNS integer
 	LANGUAGE sql immutable STRICT
 	AS $$
 select mark(get_site($1), $2) as result;
+$$;
+
+-- this function adds tag to domain with regexp
+CREATE or replace FUNCTION mark(domain text, tags text[], regexp text) RETURNS integer
+	LANGUAGE sql immutable STRICT
+	AS $$
+select mark(get_site($1), get_tag($2), $3) as result;
+$$;
+
+-- this function adds tag to domain with regexp
+CREATE or replace FUNCTION mark(domain text, tags text[]) RETURNS integer
+	LANGUAGE sql immutable STRICT
+	AS $$
+select mark(get_site($1), get_tag($2), NULL) as result;
 $$;
 
 -- this function returns id of tag array
@@ -139,6 +179,10 @@ CREATE TABLE rules (
 
 ALTER TABLE ONLY rules
 	ADD CONSTRAINT rules_pkey PRIMARY KEY (netmask);
+
+ALTER TABLE ONLY rules
+	ADD CONSTRAINT rules_tag_f FOREIGN KEY (id_tag) REFERENCES tag(id_tag) MATCH FULL
+	ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
 
 -- table to hold site arrays
 CREATE TABLE site (
@@ -174,12 +218,17 @@ CREATE TABLE urls (
 	regexp text
 );
 
+CREATE UNIQUE INDEX urls_pkey ON urls USING btree (id_site, regexp);
+
+CREATE INDEX urls_id_tag ON urls USING btree (id_tag);
+
 ALTER TABLE ONLY urls
-	ADD CONSTRAINT urls_pkey PRIMARY KEY (date_added);
+	ADD CONSTRAINT urls_site_f FOREIGN KEY (id_site) REFERENCES site(id_site) MATCH FULL
+	ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
 
-CREATE UNIQUE INDEX urls_id_site ON urls USING btree (id_site);
-
-CREATE UNIQUE INDEX urls_id_tag ON urls USING btree (id_tag);
+ALTER TABLE ONLY urls
+	ADD CONSTRAINT urls_tag_f FOREIGN KEY (id_tag) REFERENCES tag(id_tag) MATCH FULL
+	ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
 
 -- rule to join all tables into one to simplify access
 -- automaticall uses current day and time data
