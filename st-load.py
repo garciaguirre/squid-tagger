@@ -39,12 +39,13 @@ class tagDB:
 		) )
 
 	def load(self, csv_data):
-		insert = self._db.prepare("select mark($1, array[$2], $3)")
+		insert = self._db.prepare("select set($1, $2, $3)")
 		with self._db.xact():
 			config.section('loader')
 			if config['drop_database']:
-				self._db.execute('delete from urls; delete from site;');
-				#print('dropped', config['drop_database'])
+				self._db.execute('delete from urls;')
+				if config['drop_site']:
+					self._db.execute('delete from site;');
 			for row in csv_data:
 				insert(row[0], row[1], row[2])
 		self._db.execute('vacuum analyze site;')
@@ -68,6 +69,7 @@ class Config:
 		},
 		'loader': {
 			'drop_database': False,
+			'drop_site': False,
 	},}
 
 	# function to read in config file
@@ -79,11 +81,17 @@ class Config:
 		parser.add_option('-d', '--drop-database', dest = 'drop_database',
 			help = 'signals loader to drop previous database',
 			action = 'store_true')
+		parser.add_option('-D', '--drop-site', dest = 'drop_site',
+			help = 'signals loader to drop not only url definitions but site index too',
+			action = 'store_true')
 
 		(options, args) = parser.parse_args()
 
 		if options.drop_database:
 			self._default['loader']['drop_database'] = True
+
+		if options.drop_site:
+			self._default['loader']['drop_site'] = True
 
 		if not os.access(options.config, os.R_OK):
 			print("Can't read {}: exitting".format(options.config))

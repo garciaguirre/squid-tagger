@@ -136,18 +136,36 @@ CREATE or replace FUNCTION mark(domain text, new_tag text) RETURNS integer
 select mark(get_site($1), $2) as result;
 $$;
 
--- this function adds tag to domain with regexp
-CREATE or replace FUNCTION mark(domain text, tags text[], regexp text) RETURNS integer
-	LANGUAGE sql immutable STRICT
+-- this function sets tags for site/regexp pair
+CREATE or replace FUNCTION set(my_id_site integer, my_id_tag integer) RETURNS integer
+	LANGUAGE sql STRICT
 	AS $$
-select mark(get_site($1), get_tag($2), $3) as result;
+delete from urls where $1 = id_site and regexp is null;
+insert into urls (id_site, id_tag) values ($1, $2);
+select $1;
 $$;
 
--- this function adds tag to domain with regexp
-CREATE or replace FUNCTION mark(domain text, tags text[]) RETURNS integer
-	LANGUAGE sql immutable STRICT
+-- this function sets tags for site/regexp pair
+CREATE or replace FUNCTION set(my_id_site integer, my_id_tag integer, my_regexp text) RETURNS integer
+	LANGUAGE sql STRICT
 	AS $$
-select mark(get_site($1), get_tag($2), NULL) as result;
+delete from urls where $1 = id_site and $3 = regexp;
+insert into urls (id_site, id_tag, regexp) values ($1, $2, $3);
+select $1;
+$$;
+
+-- this function stores new data for site/regexp pair
+create or replace function set(domain text, tags text, regexp text) returns integer
+	language sql immutable strict
+	as $$
+select set(get_site($1), get_tag($2::text[]), $3);
+$$;
+
+-- this function stores new data for site/regexp pair
+create or replace function set(domain text, tags text) returns integer
+	language sql immutable strict
+	as $$
+select set(get_site($1), get_tag($2::text[]));
 $$;
 
 -- this function returns id of tag array
