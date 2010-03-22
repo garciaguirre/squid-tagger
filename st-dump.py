@@ -30,7 +30,7 @@ class tagDB:
 	def __init__(self):
 		self._prepared = set()
 		self._db = False
-		self._dump_stmt = self._curs().prepare("select untrip(site), tag, regexp from urls natural join site natural join tag")
+		self._dump_stmt = self._curs().prepare("select untrip(site), tag, regexp from urls natural join site natural join tag order by site, tag")
 
 	def _curs(self):
 		if not self._db:
