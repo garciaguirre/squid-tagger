@@ -39,15 +39,19 @@ class tagDB:
 		) )
 
 	def load(self, csv_data):
-		insert = self._db.prepare("select set($1, $2, $3)")
 		with self._db.xact():
 			config.section('loader')
 			if config['drop_database']:
 				self._db.execute('delete from urls;')
 				if config['drop_site']:
 					self._db.execute('delete from site;');
+			insertreg = self._db.prepare("select set($1, $2, $3)")
+			insert = self._db.prepare("select set($1, $2)")
 			for row in csv_data:
-				insert(row[0], row[1], row[2])
+				if len(row[2]) > 0:
+					insertreg(row[0], row[1], row[2])
+				else:
+					insert(row[0], row[1])
 		self._db.execute('vacuum analyze site;')
 		self._db.execute('vacuum analyze urls;')
 

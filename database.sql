@@ -136,11 +136,11 @@ CREATE or replace FUNCTION mark(domain text, new_tag text) RETURNS integer
 select mark(get_site($1), $2) as result;
 $$;
 
--- this function sets tags for site/regexp pair
+-- this function sets tags for site without regexp
 CREATE or replace FUNCTION set(my_id_site integer, my_id_tag integer) RETURNS integer
 	LANGUAGE sql STRICT
 	AS $$
-delete from urls where $1 = id_site and regexp is null;
+delete from urls where $1 = id_site and regexp is NULL;
 insert into urls (id_site, id_tag) values ($1, $2);
 select $1;
 $$;
