@@ -66,14 +66,14 @@ class Checker:
 					self._log.info('trying regexp "{}" versus "{}"\n'.format(row[1], url_path))
 					try:
 						if re.compile(row[1]).match(url_path):
-							reply = '302:' + row[0]
+							reply = row[0].format(url_path)
 							break
 						else:
 							continue
 					except:
 						self._log.info("can't compile regexp")
 				else:
-					reply = '302:' + row[0]
+					reply = row[0].format(url_path)
 					break
 		self.writeline('{} {}\n'.format(id, reply))
 
