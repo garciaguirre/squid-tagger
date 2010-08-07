@@ -48,6 +48,7 @@ class Checker:
 	def __init__(self):
 		self._db = tagDB()
 		self._log = Logger()
+		self._log.info('started\n')
 
 	def process(self, id, site, ip_address, url_path, line = None):
 		self._log.info('trying {}\n'.format(site))
@@ -163,7 +164,7 @@ class CheckerKqueue(Checker):
 
 		# kreating kqueue
 		self._kq = self._select.kqueue()
-		assert (self._kq.fileno() != -1)
+		assert self._kq.fileno() != -1, "Fatal error: can't initialise kqueue."
 
 		# watching sys.stdin for data
 		self._kq.control([self._select.kevent(sys.stdin, self._select.KQ_FILTER_READ, self._select.KQ_EV_ADD)], 0)
@@ -179,10 +180,17 @@ class CheckerKqueue(Checker):
 		while True:
 			# checking if there is any data or witing for data to arrive
 			kevs = self._kq.control(None, 1, timeout)
-			if len(kevs) > 0 and kevs[0].filter == self._select.KQ_FILTER_READ and kevs[0].data > 0:
+
+			assert len(kevs) > 0, 'Fatal error: we should receive at least one event.'
+
+			# detect end of stream and exit if possible
+			if kevs[0].flags >> 15 == 1:
+				eof = True
+
+			if kevs[0].filter == self._select.KQ_FILTER_READ and kevs[0].data > 0:
 				# reading data in
 				new_buffer = sys.stdin.read(kevs[0].data)
-				# if no data was sent - we have reached and of file
+				# if no data was sent - we have reached end of file
 				if len(new_buffer) == 0:
 					eof = True
 				else:
@@ -199,18 +207,18 @@ class CheckerKqueue(Checker):
 							if self.check(line + '\n'):
 								# don't wait for more data, start processing
 								timeout = 0
-				# if kq reports en of stream refuse to read more of it
-				if kevs[0].flags >> 15 == 1:
-					eof = True
 			else:
 				if len(self._queue) > 0:
+					# get one request and process it
 					req = self._queue.pop(0)
 					Checker.process(self, req[0], req[1], req[2], req[3])
 					if len(self._queue) == 0:
 						# wait for data - we have nothing to process
 						timeout = None
-				elif eof:
-					break
+
+			# if queue is empty and we reached end of stream - we can exit
+			if len(self._queue) == 0 and eof:
+				break
 
 	def process(self, id, site, ip_address, url_path, line):
 		# simply adding data to the queue
@@ -241,9 +249,7 @@ class Config:
 
 		(options, args) = parser.parse_args()
 
-		if not os.access(options.config, os.R_OK):
-			print("Can't read {}: exitting".format(options.config))
-			sys.exit(2)
+		assert os.access(options.config, os.R_OK), "Fatal error: can't read {}".format(options.config)
 
 		self._config = configparser.ConfigParser()
 		self._config.readfp(open(options.config))
