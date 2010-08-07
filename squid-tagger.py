@@ -80,9 +80,11 @@ class Checker:
 			url_path = request.group(4)
 			ip_address = request.group(5)
 			self.process(id, site, ip_address, url_path, line)
+			return(True)
 		else:
 			self._log.info('bad request\n')
 			self.writeline(line)
+			return(False)
 
 	def writeline(self, string):
 		self._log.info('sending: ' + string)
@@ -147,7 +149,7 @@ class CheckerThread(Checker):
 			self.check(line)
 		self._lock_exit.acquire()
 
-# kqueue enable class for BSD's XXX broken for now
+# kqueue enabled class for BSD's
 class CheckerKqueue(Checker):
 	__slots__ = frozenset(['_kq', '_select', '_queue'])
 
@@ -172,25 +174,47 @@ class CheckerKqueue(Checker):
 	def loop(self):
 		# Wait for data by default
 		timeout = None
+		eof = False
+		buffer = ''
 		while True:
-			# checking if there is any data
+			# checking if there is any data or witing for data to arrive
 			kevs = self._kq.control(None, 1, timeout)
-			if len(kevs) > 0:
-				#kev = kevs[0]
-				# XXX add some code to read only known data size and check for newlines
-				line = sys.stdin.readline()
-				# add data to the queue
-				self.check(line)
-				# don't wait for data, start processing
-				timeout = 0
+			if len(kevs) > 0 and kevs[0].filter == self._select.KQ_FILTER_READ and kevs[0].data > 0:
+				# if kq reports en of stream refuse to read more of it
+				if kevs[0].flags >> 15 == 1:
+					eof = True
+				else:
+					# reading data in
+					new_buffer = sys.stdin.read(kevs[0].data)
+					# if no data was sent - we have reached and of file
+					if len(new_buffer) == 0:
+						eof = True
+					else:
+						# adding current buffer to old buffer remains
+						buffer += new_buffer
+						# splitting to lines
+						lines = buffer.split('\n')
+						# last line that was not terminate by newline returns to buffer
+						buffer = lines[-1]
+						# an only if there was at least one newline
+						if len(lines) > 1:
+							for line in lines[:-1]:
+								# add data to the queue
+								if self.check(line + '\n'):
+									# don't wait for more data, start processing
+									timeout = 0
 			else:
-				req = self._queue.pop(0)
-				Checker.process(self, req[0], req[1], req[2], req[3])
-				if len(self._queue) == 0:
-					# wait for data - we have nothing to process
-					timeout = None
+				if len(self._queue) > 0:
+					req = self._queue.pop(0)
+					Checker.process(self, req[0], req[1], req[2], req[3])
+					if len(self._queue) == 0:
+						# wait for data - we have nothing to process
+						timeout = None
+				elif eof:
+					break
 
 	def process(self, id, site, ip_address, url_path, line):
+		# simply adding data to the queue
 		self._queue.append((id, site, ip_address, url_path))
 		self._log.info('request {} queued ({})\n'.format(id, line))
 
