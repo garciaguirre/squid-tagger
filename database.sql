@@ -106,34 +106,16 @@ $$;
 
 -- this function adds tag to site by site id
 CREATE or replace FUNCTION mark(my_id_site integer, new_tag text) RETURNS integer
-	LANGUAGE plpgsql STRICT
+	LANGUAGE sql immutable STRICT
 	AS $$
-declare
-	-- maybe check should be added to make sure supplied site id really exists
-	my_tag text[];
-begin
-	-- selecting tags site already have and adding new tag to them
-	-- note that tags should be sorted to eliminate permutations
-	select coalesce(tag, '{}'::text[]) from urls natural left join tag
-		where id_site = my_id_site and regexp is null into my_tag;
-	if not found then
-		-- no records found - creating new tag
-		insert into urls (id_site, id_tag) values (my_id_site, get_tag(array[new_tag]));
-	else
-		-- joining tags
-		select usort(my_tag || array[new_tag]) into my_tag;
-		-- updating existing record
-		update urls set id_tag = get_tag(my_tag) where id_site = my_id_site and regexp is null;
-	end if;
-	return my_id_site;
-end;
+select mark($1, get_tag(array[$2]), NULL) as result;
 $$;
 
 -- this function adds tag to domain
 CREATE or replace FUNCTION mark(domain text, new_tag text) RETURNS integer
 	LANGUAGE sql immutable STRICT
 	AS $$
-select mark(get_site($1), $2) as result;
+select mark(get_site($1), get_tag(array[$2]), NULL) as result;
 $$;
 
 -- this function sets tags for site without regexp
