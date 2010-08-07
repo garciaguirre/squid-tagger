@@ -181,13 +181,11 @@ class CheckerKqueue(Checker):
 			# checking if there is any data or witing for data to arrive
 			kevs = self._kq.control(None, 1, timeout)
 
-			assert len(kevs) > 0, 'Fatal error: we should receive at least one event.'
-
 			# detect end of stream and exit if possible
-			if kevs[0].flags >> 15 == 1:
+			if len(kevs) > 0 and kevs[0].flags >> 15 == 1:
 				eof = True
 
-			if kevs[0].filter == self._select.KQ_FILTER_READ and kevs[0].data > 0:
+			if len(kevs) > 0 and kevs[0].filter == self._select.KQ_FILTER_READ and kevs[0].data > 0:
 				# reading data in
 				new_buffer = sys.stdin.read(kevs[0].data)
 				# if no data was sent - we have reached end of file
