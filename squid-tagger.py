@@ -25,24 +25,18 @@ class Logger:
 
 # wrapper around database
 class tagDB:
-	__slots__ = frozenset(['_prepared', '_check_stmt', '_db'])
+	__slots__ = frozenset(('_check_stmt', '_db'))
 
 	def __init__(self):
-		self._prepared = set()
-		self._db = False
-		self._check_stmt = self._curs().prepare("select redirect_url, regexp from site_rule where site <@ tripdomain($1) and netmask >> $2::text::inet order by array_length(site, 1) desc")
-
-	def _curs(self):
-		if not self._db:
-			config.section('database')
-			self._db = postgresql.open(
-				'pq://{}:{}@{}/{}'.format(
-					config['user'],
-					config['password'],
-					config['host'],
-					config['database'],
-			) )
-		return(self._db)
+		config.section('database')
+		self._db = postgresql.open(
+			'pq://{}:{}@{}/{}'.format(
+				config['user'],
+				config['password'],
+				config['host'],
+				config['database'],
+		) )
+		self._check_stmt = self._db.prepare("select redirect_url, regexp from site_rule where site <@ tripdomain($1) and netmask >> $2::text::inet order by array_length(site, 1) desc")
 
 	def check(self, site, ip_address):
 		return(self._check_stmt(site, ip_address))
