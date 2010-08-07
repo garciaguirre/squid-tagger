@@ -1,6 +1,84 @@
+-- general database structure
+-- table to hold all rules
+CREATE TABLE rules (
+	netmask cidr NOT NULL,
+	redirect_url text DEFAULT 'about::blank'::text NOT NULL,
+	from_weekday smallint DEFAULT 0 NOT NULL,
+	to_weekday smallint DEFAULT 6 NOT NULL,
+	from_time time without time zone DEFAULT '00:00:00'::time without time zone NOT NULL,
+	to_time time without time zone DEFAULT '23:59:59'::time without time zone NOT NULL,
+	id_tag smallint NOT NULL
+);
+
+ALTER TABLE ONLY rules
+	ADD CONSTRAINT rules_tag_f FOREIGN KEY (id_tag) REFERENCES tag(id_tag) MATCH FULL
+	ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
+
+-- table to hold site arrays
+CREATE TABLE site (
+	id_site serial,
+	site text[] NOT NULL
+);
+
+ALTER TABLE ONLY site
+	ADD CONSTRAINT site_pkey PRIMARY KEY (id_site);
+
+CREATE UNIQUE INDEX site_u ON site (usort(site));
+
+CREATE INDEX site_g ON site USING gin (site);
+
+-- table to hold tag combinations
+CREATE TABLE tag (
+	id_tag serial,
+	tag text[] NOT NULL
+);
+
+ALTER TABLE ONLY tag
+	ADD CONSTRAINT tag_pkey PRIMARY KEY (id_tag);
+
+CREATE UNIQUE INDEX tag_u ON tag (usort(tag));
+
+CREATE INDEX tag_g ON tag USING gin (tag);
+
+-- table to hold tag - site links
+CREATE TABLE urls (
+	date_added timestamp without time zone DEFAULT ('now'::text)::timestamp(0) without time zone NOT NULL,
+	id_site smallint NOT NULL,
+	id_tag smallint NOT NULL,
+	regexp text
+);
+
+CREATE UNIQUE INDEX urls_pkey ON urls USING btree (id_site, regexp);
+
+CREATE INDEX urls_id_tag ON urls USING btree (id_tag);
+
+ALTER TABLE ONLY urls
+	ADD CONSTRAINT urls_site_f FOREIGN KEY (id_site) REFERENCES site(id_site) MATCH FULL
+	ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
+
+ALTER TABLE ONLY urls
+	ADD CONSTRAINT urls_tag_f FOREIGN KEY (id_tag) REFERENCES tag(id_tag) MATCH FULL
+	ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
+
+-- rule to join all tables into one to simplify access
+-- automaticall uses current day and time data
+CREATE VIEW site_rule AS
+SELECT a.redirect_url, a.netmask, b.site, b.regexp
+FROM ((
+	SELECT rules.redirect_url, tag.tag AS rule_tag, rules.netmask
+	FROM rules NATURAL JOIN tag
+	WHERE ('now'::text)::time without time zone >= rules.from_time
+		AND ('now'::text)::time without time zone <= rules.to_time
+		AND date_part('dow'::text, now()) >= (rules.from_weekday)::double precision
+		AND date_part('dow'::text, now()) <= (rules.to_weekday)::double precision
+) a JOIN (
+	SELECT site.site, tag.tag AS url_tag, regexp
+	FROM urls NATURAL JOIN tag NATURAL JOIN site
+) b ON (b.url_tag && a.rule_tag));
+
 CREATE PROCEDURAL LANGUAGE plpgsql;
 
--- general array sorting functions
+-- general array sorting and domain processing functions
 -- sorts array
 CREATE or replace FUNCTION sort(original anyarray) RETURNS anyarray
 	LANGUAGE sql IMMUTABLE STRICT
@@ -56,6 +134,7 @@ begin
 end;
 $_$;
 
+-- functions that works with tables
 -- this functions returns id of site
 create or replace function get_site(my_site text[]) returns integer
 	language plpgsql strict
@@ -165,80 +244,3 @@ begin
 	return tag_id;
 end;
 $$;
-
--- table to hold all rules
-CREATE TABLE rules (
-	netmask cidr NOT NULL,
-	redirect_url text DEFAULT 'about::blank'::text NOT NULL,
-	from_weekday smallint DEFAULT 0 NOT NULL,
-	to_weekday smallint DEFAULT 6 NOT NULL,
-	from_time time without time zone DEFAULT '00:00:00'::time without time zone NOT NULL,
-	to_time time without time zone DEFAULT '23:59:59'::time without time zone NOT NULL,
-	id_tag smallint NOT NULL
-);
-
-ALTER TABLE ONLY rules
-	ADD CONSTRAINT rules_tag_f FOREIGN KEY (id_tag) REFERENCES tag(id_tag) MATCH FULL
-	ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
-
--- table to hold site arrays
-CREATE TABLE site (
-	id_site serial,
-	site text[] NOT NULL
-);
-
-ALTER TABLE ONLY site
-	ADD CONSTRAINT site_pkey PRIMARY KEY (id_site);
-
-CREATE UNIQUE INDEX site_u ON site (usort(site));
-
-CREATE INDEX site_g ON site USING gin (site);
-
--- table to hold tag combinations
-CREATE TABLE tag (
-	id_tag serial,
-	tag text[] NOT NULL
-);
-
-ALTER TABLE ONLY tag
-	ADD CONSTRAINT tag_pkey PRIMARY KEY (id_tag);
-
-CREATE UNIQUE INDEX tag_u ON tag (usort(tag));
-
-CREATE INDEX tag_g ON tag USING gin (tag);
-
--- table to hold tag - site links
-CREATE TABLE urls (
-	date_added timestamp without time zone DEFAULT ('now'::text)::timestamp(0) without time zone NOT NULL,
-	id_site smallint NOT NULL,
-	id_tag smallint NOT NULL,
-	regexp text
-);
-
-CREATE UNIQUE INDEX urls_pkey ON urls USING btree (id_site, regexp);
-
-CREATE INDEX urls_id_tag ON urls USING btree (id_tag);
-
-ALTER TABLE ONLY urls
-	ADD CONSTRAINT urls_site_f FOREIGN KEY (id_site) REFERENCES site(id_site) MATCH FULL
-	ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
-
-ALTER TABLE ONLY urls
-	ADD CONSTRAINT urls_tag_f FOREIGN KEY (id_tag) REFERENCES tag(id_tag) MATCH FULL
-	ON UPDATE RESTRICT ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
-
--- rule to join all tables into one to simplify access
--- automaticall uses current day and time data
-CREATE VIEW site_rule AS
-SELECT a.redirect_url, a.netmask, b.site, b.regexp
-FROM ((
-	SELECT rules.redirect_url, tag.tag AS rule_tag, rules.netmask
-	FROM rules NATURAL JOIN tag
-	WHERE ('now'::text)::time without time zone >= rules.from_time
-		AND ('now'::text)::time without time zone <= rules.to_time
-		AND date_part('dow'::text, now()) >= (rules.from_weekday)::double precision
-		AND date_part('dow'::text, now()) <= (rules.to_weekday)::double precision
-) a JOIN (
-	SELECT site.site, tag.tag AS url_tag, regexp
-	FROM urls NATURAL JOIN tag NATURAL JOIN site
-) b ON (b.url_tag && a.rule_tag));
