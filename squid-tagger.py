@@ -181,31 +181,34 @@ class CheckerKqueue(Checker):
 			# checking if there is any data or witing for data to arrive
 			kevs = self._kq.control(None, 1, timeout)
 
-			# detect end of stream and exit if possible
-			if len(kevs) > 0 and kevs[0].flags >> 15 == 1:
-				eof = True
+			for kev in kevs:
+				if kev.filter == self._select.KQ_FILTER_READ and kev.data > 0:
+					# reading data in
+					new_buffer = sys.stdin.read(kev.data)
+					# if no data was sent - we have reached end of file
+					if len(new_buffer) == 0:
+						eof = True
+					else:
+						# adding current buffer to old buffer remains
+						buffer += new_buffer
+						# splitting to lines
+						lines = buffer.split('\n')
+						# last line that was not terminate by newline returns to buffer
+						buffer = lines[-1]
+						# an only if there was at least one newline
+						if len(lines) > 1:
+							for line in lines[:-1]:
+								# add data to the queue
+								if self.check(line + '\n'):
+									# don't wait for more data, start processing
+									timeout = 0
 
-			if len(kevs) > 0 and kevs[0].filter == self._select.KQ_FILTER_READ and kevs[0].data > 0:
-				# reading data in
-				new_buffer = sys.stdin.read(kevs[0].data)
-				# if no data was sent - we have reached end of file
-				if len(new_buffer) == 0:
+				# detect end of stream and exit if possible
+				if kev.flags >> 15 == 1:
+					self._kq.control([self._select.kevent(sys.stdin, self._select.KQ_FILTER_READ, self._select.KQ_EV_DELETE)], 0)
 					eof = True
-				else:
-					# adding current buffer to old buffer remains
-					buffer += new_buffer
-					# splitting to lines
-					lines = buffer.split('\n')
-					# last line that was not terminate by newline returns to buffer
-					buffer = lines[-1]
-					# an only if there was at least one newline
-					if len(lines) > 1:
-						for line in lines[:-1]:
-							# add data to the queue
-							if self.check(line + '\n'):
-								# don't wait for more data, start processing
-								timeout = 0
-			else:
+
+			if len(kevs) == 0:
 				if len(self._queue) > 0:
 					# get one request and process it
 					req = self._queue.pop(0)
