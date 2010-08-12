@@ -49,6 +49,22 @@ class tagDB:
 			self._dump_stmt = self._db.prepare("select untrip(site), tag, regexp from urls natural join site natural join tag order by site, tag")
 		return(self._dump_stmt())
 
+	def load(self, csv_data):
+		with self._db.xact():
+			if config.options.flush_db:
+				self._db.execute('delete from urls;')
+				if config.options.flush_site:
+					self._db.execute('delete from site;');
+			insertreg = self._db.prepare("select set($1, $2, $3)")
+			insert = self._db.prepare("select set($1, $2)")
+			for row in csv_data:
+				if len(row[2]) > 0:
+					insertreg(row[0], row[1], row[2])
+				else:
+					insert(row[0], row[1])
+		self._db.execute('vacuum analyze site;')
+		self._db.execute('vacuum analyze urls;')
+
 # abstract class with basic checking functionality
 class Checker:
 	__slots__ = frozenset(['_db', '_log'])
@@ -61,7 +77,6 @@ class Checker:
 	def process(self, id, site, ip_address, url_path, line = None):
 		self._log.info('trying {}\n'.format(site))
 		result = self._db.check(site, ip_address)
-		#reply = '{}://{}/{}'.format(req[4], req[1], req[3])
 		reply = '-'
 		for row in result:
 			if row != None and row[0] != None:
@@ -262,6 +277,15 @@ class Config:
 		parser.add_option('-d', '--dump', dest = 'dump',
 			help = 'dump database', action = 'store_true', metavar = 'bool',
 			default = False)
+		parser.add_option('-f', '--flush-database', dest = 'flush_db',
+			help = 'flush previous database on load', default = False,
+			action = 'store_true', metavar = 'bool')
+		parser.add_option('-F', '--flush-site', dest = 'flush_site',
+			help = 'when flushing previous dtabase flush site index too',
+			action = 'store_true', default = False, metavar = 'bool')
+		parser.add_option('-l', '--load', dest = 'load',
+			help = 'load database', action = 'store_true', metavar = 'bool',
+			default = False)
 
 		(self.options, args) = parser.parse_args()
 
@@ -302,6 +326,19 @@ if config.options.dump:
 	csv_writer.writerow(['site', 'tags', 'regexp'])
 	for row in tagdb.dump():
 		csv_writer.writerow([row[0], '{' + ','.join(row[1]) + '}', row[2]])
+
+elif config.options.load:
+	# loading database
+	import csv
+
+	tagdb = tagDB()
+
+	csv_reader = csv.reader(sys.stdin)
+	first_row = next(csv_reader)
+
+	assert first_row == ['site', 'tags', 'regexp'], 'File must contain csv data with three columns: "site", "tags" and "regexp".'
+
+	tagdb.load(csv_reader)
 
 else:
 	# main loop
