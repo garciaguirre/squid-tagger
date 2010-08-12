@@ -1,6 +1,6 @@
 #!/usr/bin/env python3.1
 
-import configparser, optparse, os, postgresql.api, re, sys, _thread
+import postgresql.api, re, sys
 
 # wrapper around syslog, can be muted
 class Logger:
@@ -25,7 +25,7 @@ class Logger:
 
 # wrapper around database
 class tagDB:
-	__slots__ = frozenset(('_check_stmt', '_db'))
+	__slots__ = frozenset(('_check_stmt', '_db', '_dump_stmt'))
 
 	def __init__(self):
 		config.section('database')
@@ -36,10 +36,18 @@ class tagDB:
 				config['host'],
 				config['database'],
 		) )
-		self._check_stmt = self._db.prepare("select redirect_url, regexp from site_rule where site <@ tripdomain($1) and netmask >> $2::text::inet order by array_length(site, 1) desc")
+		self._check_stmt = None
+		self._dump_stmt = None
 
 	def check(self, site, ip_address):
+		if self._check_stmt == None:
+			self._check_stmt = self._db.prepare("select redirect_url, regexp from site_rule where site <@ tripdomain($1) and netmask >> $2::text::inet order by array_length(site, 1) desc")
 		return(self._check_stmt(site, ip_address))
+
+	def dump(self):
+		if self._dump_stmt == None:
+			self._dump_stmt = self._db.prepare("select untrip(site), tag, regexp from urls natural join site natural join tag order by site, tag")
+		return(self._dump_stmt())
 
 # abstract class with basic checking functionality
 class Checker:
@@ -104,6 +112,8 @@ class CheckerThread(Checker):
 	__slots__ = frozenset(['_lock', '_lock_exit', '_lock_queue', '_queue'])
 
 	def __init__(self):
+		import _thread
+
 		# basic initialisation
 		Checker.__init__(self)
 
@@ -228,7 +238,7 @@ class CheckerKqueue(Checker):
 
 # this classes processes config file and substitutes default values
 class Config:
-	__slots__ = frozenset(['_config', '_default', '_section'])
+	__slots__ = frozenset(['_config', '_default', '_section', 'options'])
 	_default = {
 		'reactor': {
 			'reactor': 'thread',
@@ -243,17 +253,22 @@ class Config:
 
 	# function to read in config file
 	def __init__(self):
+		import configparser, optparse, os
+
 		parser = optparse.OptionParser()
 		parser.add_option('-c', '--config', dest = 'config',
 			help = 'config file location', metavar = 'FILE',
 			default = '/usr/local/etc/squid-tagger.conf')
+		parser.add_option('-d', '--dump', dest = 'dump',
+			help = 'dump database', action = 'store_true', metavar = 'bool',
+			default = False)
 
-		(options, args) = parser.parse_args()
+		(self.options, args) = parser.parse_args()
 
-		assert os.access(options.config, os.R_OK), "Fatal error: can't read {}".format(options.config)
+		assert os.access(self.options.config, os.R_OK), "Fatal error: can't read {}".format(self.options.config)
 
 		self._config = configparser.ConfigParser()
-		self._config.readfp(open(options.config))
+		self._config.readfp(open(self.options.config))
 
 	# function to select config file section or create one
 	def section(self, section):
@@ -277,12 +292,25 @@ class Config:
 # initializing and reading in config file
 config = Config()
 
-config.section('reactor')
-if config['reactor'] == 'thread':
-	checker = CheckerThread()
-elif config['reactor'] == 'plain':
-	checker = Checker()
-elif config['reactor'] == 'kqueue':
-	checker = CheckerKqueue()
+if config.options.dump:
+	# dumping database
+	import csv
 
-checker.loop()
+	tagdb = tagDB()
+
+	csv_writer = csv.writer(sys.stdout)
+	csv_writer.writerow(['site', 'tags', 'regexp'])
+	for row in tagdb.dump():
+		csv_writer.writerow([row[0], '{' + ','.join(row[1]) + '}', row[2]])
+
+else:
+	# main loop
+	config.section('reactor')
+	if config['reactor'] == 'thread':
+		checker = CheckerThread()
+	elif config['reactor'] == 'plain':
+		checker = Checker()
+	elif config['reactor'] == 'kqueue':
+		checker = CheckerKqueue()
+
+	checker.loop()
