@@ -43,7 +43,7 @@ CREATE INDEX tag_g ON tag USING gin (tag);
 -- table to hold tag - site links
 CREATE TABLE urls (
 	date_added timestamp without time zone DEFAULT ('now'::text)::timestamp(0) without time zone NOT NULL,
-	id_site smallint NOT NULL,
+	id_site integer NOT NULL,
 	id_tag smallint NOT NULL,
 	regexp text
 );
