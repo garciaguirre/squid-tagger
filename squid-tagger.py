@@ -25,7 +25,7 @@ class Logger:
 
 # wrapper around database
 class tagDB:
-	__slots__ = frozenset(('_check_stmt', '_db', '_dump_stmt'))
+	__slots__ = frozenset(('_check_stmt', '_db'))
 
 	def __init__(self):
 		config.section('database')
@@ -37,7 +37,6 @@ class tagDB:
 				config['database'],
 		) )
 		self._check_stmt = None
-		self._dump_stmt = None
 
 	def check(self, site, ip_address):
 		if self._check_stmt == None:
@@ -45,9 +44,7 @@ class tagDB:
 		return(self._check_stmt(site, ip_address))
 
 	def dump(self):
-		if self._dump_stmt == None:
-			self._dump_stmt = self._db.prepare("select untrip(site), tag, regexp from urls natural join site natural join tag order by site, tag")
-		return(self._dump_stmt())
+		return(self._db.prepare("select untrip(site), tag, regexp from urls natural join site natural join tag order by site, tag")())
 
 	def load(self, csv_data):
 		with self._db.xact():
@@ -64,6 +61,17 @@ class tagDB:
 					insert(row[0], row[1])
 		self._db.execute('vacuum analyze site;')
 		self._db.execute('vacuum analyze urls;')
+
+	def load_conf(self, csv_data):
+		with self._db.xact():
+			self._db.execute('delete from rules;')
+			insertconf = self._db.prepare("insert into rules (netmask, redirect_url, from_weekday, to_weekday, from_time, to_time, id_tag) values ($1::text::cidr, $2, $3, $4, $5::text::time, $6::text::time, get_tag($7::text::text[]))")
+			for row in csv_data:
+				insertconf(row[0], row[1], int(row[2]), int(row[3]), row[4], row[5], row[6])
+		self._db.execute('vacuum analyze rules;')
+
+	def dump_conf(self):
+		return(self._db.prepare("select netmask, redirect_url, from_weekday, to_weekday, from_time, to_time, tag from rules natural join tag")())
 
 # abstract class with basic checking functionality
 class Checker:
@@ -286,6 +294,12 @@ class Config:
 		parser.add_option('-l', '--load', dest = 'load',
 			help = 'load database', action = 'store_true', metavar = 'bool',
 			default = False)
+		parser.add_option('-D', '--dump-conf', dest = 'dump_conf',
+			help = 'dump filtering rules', default = False, metavar = 'bool',
+			action = 'store_true')
+		parser.add_option('-L', '--load-conf', dest = 'load_conf',
+			help = 'load filtering rules', default = False, metavar = 'bool',
+			action = 'store_true')
 
 		(self.options, args) = parser.parse_args()
 
@@ -316,29 +330,42 @@ class Config:
 # initializing and reading in config file
 config = Config()
 
-if config.options.dump:
-	# dumping database
+if config.options.dump or config.options.load or config.options.dump_conf or config.options.load_conf:
 	import csv
 
 	tagdb = tagDB()
+	data_fields = ['site', 'tags', 'regexp']
+	conf_fields = ['netmask', 'redirect_url', 'from_weekday', 'to_weekday', 'from_time', 'to_time', 'tag']
 
-	csv_writer = csv.writer(sys.stdout)
-	csv_writer.writerow(['site', 'tags', 'regexp'])
-	for row in tagdb.dump():
-		csv_writer.writerow([row[0], '{' + ','.join(row[1]) + '}', row[2]])
+	if config.options.dump or config.options.dump_conf:
+		csv_writer = csv.writer(sys.stdout)
+		if config.options.dump:
+			# dumping database
+			csv_writer.writerow(data_fields)
+			for row in tagdb.dump():
+				csv_writer.writerow([row[0], '{' + ','.join(row[1]) + '}', row[2]])
 
-elif config.options.load:
-	# loading database
-	import csv
+		elif config.options.dump_conf:
+			# dumping rules
+			csv_writer.writerow(conf_fields)
+			for row in tagdb.dump_conf():
+				csv_writer.writerow([row[0], row[1], row[2], row[3], row[4], row[5], '{' + ','.join(row[6]) + '}'])
 
-	tagdb = tagDB()
+	elif config.options.load or config.options.load_conf:
+		csv_reader = csv.reader(sys.stdin)
+		first_row = next(csv_reader)
 
-	csv_reader = csv.reader(sys.stdin)
-	first_row = next(csv_reader)
+		if config.options.load:
+			# loading database
+			assert first_row == data_fields, 'File must contain csv data with theese columns: ' + data_fields
 
-	assert first_row == ['site', 'tags', 'regexp'], 'File must contain csv data with three columns: "site", "tags" and "regexp".'
+			tagdb.load(csv_reader)
 
-	tagdb.load(csv_reader)
+		elif config.options.load_conf:
+			# loading database
+			assert first_row == conf_fields, 'File must contain csv data with theese columns: ' + conf_fields
+
+			tagdb.load_conf(csv_reader)
 
 else:
 	# main loop
