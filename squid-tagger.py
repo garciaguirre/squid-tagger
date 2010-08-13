@@ -357,13 +357,13 @@ if config.options.dump or config.options.load or config.options.dump_conf or con
 
 		if config.options.load:
 			# loading database
-			assert first_row == data_fields, 'File must contain csv data with theese columns: ' + data_fields
+			assert first_row == data_fields, 'File must contain csv data with theese columns: ' + repr(data_fields)
 
 			tagdb.load(csv_reader)
 
 		elif config.options.load_conf:
 			# loading database
-			assert first_row == conf_fields, 'File must contain csv data with theese columns: ' + conf_fields
+			assert first_row == conf_fields, 'File must contain csv data with theese columns: ' + repr(conf_fields)
 
 			tagdb.load_conf(csv_reader)
 
