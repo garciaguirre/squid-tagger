@@ -44,43 +44,41 @@ class tagDB:
 		return(self._check_stmt(site, ip_address))
 
 	def dump(self):
-		return(self._db.prepare("select untrip(site), tag, regexp from urls natural join site natural join tag order by site, tag")())
+		return(self._db.prepare("copy (select untrip(site) as site, tag, regexp from urls order by site, tag) to stdout csv header")())
 
-	def load(self, csv_data):
+	def load(self, data):
 		with self._db.xact():
 			if config.options.flush_db:
 				self._db.execute('delete from urls;')
-				if config.options.flush_site:
-					self._db.execute('delete from site;');
-			insertreg = self._db.prepare("select set($1, $2, $3)")
-			insert = self._db.prepare("select set($1, $2)")
-			for row in csv_data:
-				if len(row[2]) > 0:
-					insertreg(row[0], row[1], row[2])
+			insert = self._db.prepare("insert into urls (site, tag, regexp) values (tripdomain($1), $2::text::text[], $3)")
+			for row in data:
+				if len(row) == 2:
+					insert(row[0], row[1], None)
 				else:
-					insert(row[0], row[1])
-		self._db.execute('vacuum analyze site;')
+					insert(row[0], row[1], row[2])
+			self._db.execute("update urls set regexp = NULL where regexp = ''")
 		self._db.execute('vacuum analyze urls;')
 
 	def load_conf(self, csv_data):
 		with self._db.xact():
 			self._db.execute('delete from rules;')
-			insertconf = self._db.prepare("insert into rules (netmask, redirect_url, from_weekday, to_weekday, from_time, to_time, id_tag) values ($1::text::cidr, $2, $3, $4, $5::text::time, $6::text::time, get_tag($7::text::text[]))")
+			insertconf = self._db.prepare("insert into rules (netmask, redirect_url, from_weekday, to_weekday, from_time, to_time, tag) values ($1::text::cidr, $2, $3, $4, $5::text::time, $6::text::time, $7::text::text[])")
 			for row in csv_data:
 				insertconf(row[0], row[1], int(row[2]), int(row[3]), row[4], row[5], row[6])
 		self._db.execute('vacuum analyze rules;')
 
 	def dump_conf(self):
-		return(self._db.prepare("select netmask, redirect_url, from_weekday, to_weekday, from_time, to_time, tag from rules natural join tag")())
+		return(self._db.prepare("copy (select netmask, redirect_url, from_weekday, to_weekday, from_time, to_time, tag from rules) to stdout csv header")())
 
 # abstract class with basic checking functionality
 class Checker:
-	__slots__ = frozenset(['_db', '_log'])
+	__slots__ = frozenset(['_db', '_log', '_request'])
 
 	def __init__(self):
 		self._db = tagDB()
 		self._log = Logger()
 		self._log.info('started\n')
+		self._request = re.compile('^([0-9]+)\ (http|ftp):\/\/([-\w.:]+)\/([^ ]*)\ ([0-9.]+)\/(-|[\w\.]+)\ (-|\w+)\ (-|GET|HEAD|POST).*$')
 
 	def process(self, id, site, ip_address, url_path, line = None):
 		self._log.info('trying {}\n'.format(site))
@@ -104,7 +102,7 @@ class Checker:
 		self.writeline('{} {}\n'.format(id, reply))
 
 	def check(self, line):
-		request = re.compile('^([0-9]+)\ (http|ftp):\/\/([-\w.:]+)\/([^ ]*)\ ([0-9.]+)\/(-|[\w\.]+)\ (-|\w+)\ (-|GET|HEAD|POST).*$').match(line)
+		request = self._request.match(line)
 		if request:
 			id = request.group(1)
 			#proto = request.group(2)
@@ -240,6 +238,7 @@ class CheckerKqueue(Checker):
 				if kev.flags >> 15 == 1:
 					self._kq.control([self._select.kevent(sys.stdin, self._select.KQ_FILTER_READ, self._select.KQ_EV_DELETE)], 0)
 					eof = True
+					#timeout = 0
 
 			if len(kevs) == 0:
 				if len(self._queue) > 0:
@@ -288,9 +287,6 @@ class Config:
 		parser.add_option('-f', '--flush-database', dest = 'flush_db',
 			help = 'flush previous database on load', default = False,
 			action = 'store_true', metavar = 'bool')
-		parser.add_option('-F', '--flush-site', dest = 'flush_site',
-			help = 'when flushing previous dtabase flush site index too',
-			action = 'store_true', default = False, metavar = 'bool')
 		parser.add_option('-l', '--load', dest = 'load',
 			help = 'load database', action = 'store_true', metavar = 'bool',
 			default = False)
@@ -334,38 +330,31 @@ if config.options.dump or config.options.load or config.options.dump_conf or con
 	import csv
 
 	tagdb = tagDB()
-	data_fields = ['site', 'tags', 'regexp']
+	data_fields = ['site', 'tag', 'regexp']
 	conf_fields = ['netmask', 'redirect_url', 'from_weekday', 'to_weekday', 'from_time', 'to_time', 'tag']
 
 	if config.options.dump or config.options.dump_conf:
-		csv_writer = csv.writer(sys.stdout)
 		if config.options.dump:
-			# dumping database
-			csv_writer.writerow(data_fields)
-			for row in tagdb.dump():
-				csv_writer.writerow([row[0], '{' + ','.join(row[1]) + '}', row[2]])
-
+			dump = tagdb.dump()
 		elif config.options.dump_conf:
-			# dumping rules
-			csv_writer.writerow(conf_fields)
-			for row in tagdb.dump_conf():
-				csv_writer.writerow([row[0], row[1], row[2], row[3], row[4], row[5], '{' + ','.join(row[6]) + '}'])
+			dump = tagdb.dump_conf()
+
+		for line in dump:
+			sys.stdout.write(line.decode('utf-8'))
 
 	elif config.options.load or config.options.load_conf:
 		csv_reader = csv.reader(sys.stdin)
 		first_row = next(csv_reader)
 
 		if config.options.load:
-			# loading database
-			assert first_row == data_fields, 'File must contain csv data with theese columns: ' + repr(data_fields)
-
-			tagdb.load(csv_reader)
-
+			fields = data_fields
+			load = tagdb.load
 		elif config.options.load_conf:
-			# loading database
-			assert first_row == conf_fields, 'File must contain csv data with theese columns: ' + repr(conf_fields)
+			fields = conf_fields
+			load = tagdb.load_conf
 
-			tagdb.load_conf(csv_reader)
+		assert first_row == fields, 'File must contain csv data with theese columns: ' + repr(fields)
+		load(csv_reader)
 
 else:
 	# main loop
