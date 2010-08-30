@@ -37,7 +37,7 @@ for (path, names, files) in os.walk('.'):
 							data[line] = {regexp: set([tag])}
 
 cw = csv.writer(sys.stdout)
-cw.writerow(['site', 'tags', 'regexp'])
+cw.writerow(['site', 'tag', 'regexp'])
 
 for domain in data:
 	for regexp in data[domain]:
