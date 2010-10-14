@@ -25,6 +25,8 @@ CREATE TABLE rules (
 	tag text[] NOT NULL
 );
 
+create index rules_tag_g on rules using gin (tag);
+
 -- table to hold tag - site links
 CREATE TABLE urls (
 	date_added timestamp without time zone DEFAULT ('now'::text)::timestamp(0) without time zone NOT NULL,
@@ -33,6 +35,8 @@ CREATE TABLE urls (
 	regexp text
 );
 
+create index urls_tag_g on urls using gin (tag);
+create index urls_site_g on urls using gin (site);
 create unique index urls_rst on urls (regexp, usort(site), usort(tag));
 
 -- rule to join all tables into one to simplify access
