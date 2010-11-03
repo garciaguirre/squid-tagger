@@ -83,7 +83,7 @@ class Checker:
 	def process(self, id, site, ip_address, url_path, line = None):
 		self._log.info('trying {}\n'.format(site))
 		result = self._db.check(site, ip_address)
-		reply = '-'
+		reply = None
 		for row in result:
 			if row != None and row[0] != None:
 				if row[1] != None:
@@ -91,15 +91,16 @@ class Checker:
 					try:
 						if re.compile(row[1]).match(url_path):
 							reply = row[0].format(url_path)
-							break
 						else:
 							continue
 					except:
 						self._log.info("can't compile regexp")
 				else:
 					reply = row[0].format(url_path)
-					break
-		self.writeline('{} {}\n'.format(id, reply))
+			if reply != None:
+				self.writeline('{} {}\n'.format(id, reply))
+				return(True)
+		self.writeline('{}\n'.format(id))
 
 	def check(self, line):
 		request = self._request.match(line)
