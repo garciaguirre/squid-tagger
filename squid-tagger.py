@@ -40,7 +40,7 @@ class tagDB:
 
 	def check(self, site, ip_address):
 		if self._check_stmt == None:
-			self._check_stmt = self._db.prepare("select redirect_url, regexp from site_rule where site <@ tripdomain($1) and netmask >> $2::text::inet order by array_length(site, 1) desc")
+			self._check_stmt = self._db.prepare("select redirect_url, regexp from site_rule where site <@ tripdomain($1) and netmask >>= $2::text::inet order by array_length(site, 1) desc")
 		return(self._check_stmt(site, ip_address))
 
 	def dump(self):
