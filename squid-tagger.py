@@ -95,28 +95,12 @@ class Config:
 # initializing and reading in config file
 config = Config()
 
-# wrapper around syslog, can be muted
-class Logger(object):
-	__slots__ = frozenset(['_syslog'])
-
-	def __init__(self):
-		config.section('log')
-		if config['silent'] == 'yes':
-			self._syslog = None
-		else:
-			import syslog
-			self._syslog = syslog
-			self._syslog.openlog(str('squidTag'))
-
-	def info(self, message):
-		if self._syslog != None:
-			self._syslog.syslog(self._syslog.LOG_INFO, message)
-
-	def notice(self, message):
-		if self._syslog != None:
-			self._syslog.syslog(self._syslog.LOG_NOTICE, message)
-
-logger = Logger()
+import logging, logging.handlers
+logger = logging.getLogger('squidTag')
+logger.setLevel(logging.INFO)
+handler = logging.handlers.SysLogHandler('/dev/log')
+handler.setFormatter(logging.Formatter(str('squidTag[%(process)s]: %(message)s')))
+logger.addHandler(handler)
 
 # tiny wrapper around a file to make reads from it geventable
 # or should i move this somewhere?
@@ -155,7 +139,7 @@ class FReadlineQueue(gevent.queue.Queue):
 		# dropping all complete elements to the queue
 		for row in rows:
 			self.put_nowait(row)
-			logger.info('request: ' + row)
+			logger.info(str('< ' + row))
 		if len(buf) > 0:
 			# no EOF, reinstalling event handler
 			gevent.core.read_event(self._fd.fileno(), self._wait_helper)
@@ -283,27 +267,27 @@ class Checker(object):
 	def __init__(self, queue, logger):
 		self._db = tagDB()
 		self._log = logger
-		self._log.info('started')
+		self._log.info(str('started'))
 		self._request = re.compile('^([0-9]+)\ (http|ftp):\/\/([-\w.:]+)\/([^ ]*)\ ([0-9.]+)\/(-|[\w\.]+)\ (-|\w+)\ (-|GET|HEAD|POST).*$')
 		self._queue = queue
 		self._stdout = FWritelineQueue(sys.stdout, False)
 
 	def process(self, id, site, ip_address, url_path, line = None):
-		#self._log.info('trying {}'.format(site))
+		#self._log.info(str('trying {}'.format(site)))
 		result = self._db.check(site, ip_address)
 		reply = None
-		#self._log.info('got {} lines from database'.format(len(result)))
+		#self._log.info(str('got {} lines from database'.format(len(result))))
 		for row in result:
 			if row != None and row[0] != None:
 				if row[1] != None:
-					self._log.info('trying regexp "{}" versus "{}"'.format(row[1], url_path))
+					self._log.info(str('trying regexp "{}" versus "{}"'.format(row[1], url_path)))
 					try:
 						if re.compile(row[1]).match(url_path):
 							reply = row[0].format(url_path)
 						else:
 							continue
 					except:
-						self._log.info("can't compile regexp")
+						self._log.info(str("can't compile regexp"))
 				else:
 					reply = row[0].format(url_path)
 			if reply != None:
@@ -316,7 +300,7 @@ class Checker(object):
 			line = self._queue.get()
 			if line == None:
 				break
-			#self._log.info('request: ' + line)
+			#self._log.info(str('request: ' + line))
 			request = self._request.match(line)
 			if request:
 				id = request.group(1)
@@ -326,11 +310,11 @@ class Checker(object):
 				ip_address = request.group(5)
 				self.process(id, site, ip_address, url_path, line)
 			else:
-				self._log.info('bad request\n')
+				self._log.info(str('bad request'))
 				self.writeline(line)
 
 	def writeline(self, string):
-		self._log.info('sending: ' + string)
+		self._log.info(str('> ' + string))
 		self._stdout.put(string)
 
 	def loop(self):
