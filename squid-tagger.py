@@ -38,7 +38,6 @@ class Config:
 			'silent': 'no',
 		},
 		'database': {
-			'host': 'localhost',
 			'database': 'squidTag',
 	},}
 
@@ -100,36 +99,33 @@ import logging, logging.handlers
 # wrapper around logging handler to make it queue records and don't stall when sending them
 
 class SysLogHandlerQueue(logging.handlers.SysLogHandler):
-	__slots__ = frozenset(['_event', '_tail', '_workers'])
+	__slots__ = frozenset(['_running', '_tail', '_worker'])
 
 	def __init__(self):
 		logging.handlers.SysLogHandler.__init__(self, '/dev/log')
-		self._event = gevent.event.Event()
-		self._event.set()
 		self._tail = gevent.queue.Queue()
-		self._workers = set()
+		self._worker = None
 
 	def emit(self, record):
 		# my syslog is broken and cannot into UTF-8 BOM
 		record.msg = str(record.msg)
 		self._tail.put(record)
-		if self._tail.qsize() != 0:
+		if self._worker == None:
 			# in case queue is empty we will spawn new worker
 			# all workers are logged so we can kill them on close()
-			self._workers.add(gevent.spawn(self._writer))
+			self._worker = gevent.spawn(self._writer)
 
 	def _writer(self):
 		# here we are locking the queue so we can be sure we are the only one
-		self._event.wait()
-		self._event.clear()
+		print('syslog start')
 		while not self._tail.empty():
 			logging.handlers.SysLogHandler.emit(self, self._tail.get())
-		self._event.set()
-		self._workers.remove(gevent.getcurrent())
+		self._worker = None
+		print('syslog end')
 
 	def close(self):
-		for worker in self._workers:
-			gevent.kill(worker)
+		if self._worker != None:
+			gevent.kill(self._worker)
 		logging.handlers.SysLogHandler.close(self)
 
 logger = logging.getLogger('squidTag')
@@ -143,28 +139,29 @@ logger.addHandler(handler)
 
 class FReadlineQueue(gevent.queue.Queue):
 	# storing file descriptor, leftover
-	__slots__ = frozenset(['_fd', '_tail'])
+	__slots__ = frozenset(['_io', '_fileno', '_tail'])
 
-	def __init__(self, fd):
+	def __init__(self, fd, closefd = True):
+		import io
 		# initialising class
 		gevent.queue.Queue.__init__(self)
 		# storing file descriptor
-		self._fd = fd
+		self._fileno = fd.fileno()
+		self._io = io.FileIO(self._fileno, 'r', closefd)
 		# using empty tail
 		self._tail = ''
 		# setting up event
 		self._install_wait()
 
 	def _install_wait(self):
-		fileno = self._fd.fileno()
 		# putting file to nonblocking mode
-		fcntl.fcntl(fileno, fcntl.F_SETFL, fcntl.fcntl(fileno, fcntl.F_GETFL)  | os.O_NONBLOCK)
+		fcntl.fcntl(self._fileno, fcntl.F_SETFL, fcntl.fcntl(self._fileno, fcntl.F_GETFL)  | os.O_NONBLOCK)
 		# installing event handler
-		gevent.core.read_event(fileno, self._wait_helper)
+		gevent.core.read_event(self._fileno, self._wait_helper)
 
 	def _wait_helper(self, ev, evtype):
 		# reading one buffer from stream
-		buf = self._fd.read(4096)
+		buf = self._io.read(4096)
 		# splitting stream by line ends
 		rows = buf.decode('l1').split('\n')
 		# adding tail to the first element if there is some tail
@@ -178,12 +175,12 @@ class FReadlineQueue(gevent.queue.Queue):
 			logger.info('< ' + row)
 		if len(buf) > 0:
 			# no EOF, reinstalling event handler
-			gevent.core.read_event(self._fd.fileno(), self._wait_helper)
+			gevent.core.read_event(self._fileno, self._wait_helper)
 		else:
 			# EOF found, sending EOF to queue
 			self.put_nowait(None)
 
-stdin = FReadlineQueue(sys.stdin)
+stdin = FReadlineQueue(sys.stdin, False)
 
 # wrapper against file handler that makes possible to queue some writes without stalling
 

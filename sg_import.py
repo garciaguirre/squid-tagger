@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.1
+#!/usr/bin/env python3.2
 
 # This script converts SquidGuard database into format that can be imported to
 # squid-tagger. It should be run in SquidGuard database directory and it would
