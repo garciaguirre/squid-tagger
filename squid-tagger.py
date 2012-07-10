@@ -108,7 +108,7 @@ class SysLogHandlerQueue(logging.handlers.SysLogHandler):
 
 	def emit(self, record):
 		# my syslog is broken and cannot into UTF-8 BOM
-		record.msg = str(record.msg)
+		record.msg = record.msg.encode('utf-8')
 		self._tail.put(record)
 		if self._worker == None:
 			# in case queue is empty we will spawn new worker
@@ -117,11 +117,9 @@ class SysLogHandlerQueue(logging.handlers.SysLogHandler):
 
 	def _writer(self):
 		# here we are locking the queue so we can be sure we are the only one
-		print('syslog start')
 		while not self._tail.empty():
 			logging.handlers.SysLogHandler.emit(self, self._tail.get())
 		self._worker = None
-		print('syslog end')
 
 	def close(self):
 		if self._worker != None:
