@@ -197,7 +197,7 @@ class FWritelineQueue(gevent.queue.JoinableQueue):
 		# using empty tail
 		self._tail = None
 		# putting file to nonblocking mode
-		fcntl.fcntl(self._fileno, fcntl.F_SETFL, fcntl.fcntl(self._fileno, fcntl.F_GETFL)  | os.O_NONBLOCK)
+		fcntl.fcntl(self._fileno, fcntl.F_SETFL, fcntl.fcntl(self._fileno, fcntl.F_GETFL) | os.O_NONBLOCK)
 
 	def __del__(self):
 		# purge queue before deleting
@@ -301,7 +301,7 @@ class Checker(object):
 		self._db = tagDB()
 		self._log = logger
 		self._log.info('started')
-		self._request = re.compile('^([0-9]+)\ (http|ftp):\/\/([-\w.:]+)\/([^ ]*)\ ([0-9.]+)\/(-|[\w\.]+)\ (-|\w+)\ (-|GET|HEAD|POST).*$')
+		self._request = re.compile('^([0-9]+)\ (http|ftp):\/\/([-\w.:]+)\/([^ ]*)\ ([0-9.:]+)\/(-|[\w\.]+)\ (-|\w+)\ (-|GET|HEAD|POST).*$')
 		self._queue = queue
 		self._stdout = FWritelineQueue(sys.stdout, False)
 
