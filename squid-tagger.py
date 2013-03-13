@@ -321,13 +321,13 @@ class Checker(object):
 					self._log.info('trying regexp "{}" versus "{}"'.format(row[1], url_path))
 					try:
 						if re.compile(row[1]).match(url_path):
-							reply = row[0].format(url_path)
+							reply = row[0].format(host = site, path = url_path)
 						else:
 							continue
 					except:
 						self._log.info("can't compile regexp")
 				else:
-					reply = row[0].format(url_path)
+					reply = row[0].format(host = site, path = url_path)
 			if reply != None:
 				self.writeline('{} {}'.format(id, reply))
 				return(True)
