@@ -107,8 +107,6 @@ class SysLogHandlerQueue(logging.handlers.SysLogHandler):
 		self._worker = None
 
 	def emit(self, record):
-		# my syslog is broken and cannot into UTF-8 BOM
-		record.msg = record.msg.encode('utf-8')
 		try:
 			self._tail.put(record)
 		except (KeyboardInterrupt, SystemExit):
@@ -306,7 +304,7 @@ class Checker(object):
 		self._db = tagDB()
 		self._log = logger
 		self._log.info('started')
-		self._request = re.compile('^([0-9]+)\ (http|ftp):\/\/([-\w.:]+)\/([^ ]*)\ ([0-9.:]+)\/(-|[\w\.]+)\ (-|\w+)\ (-|GET|HEAD|POST).*$')
+		self._request = re.compile('^([0-9]+)\ ((http|ftp):\/\/)?([-\w.]+)(:[0-9]+)?(\/([^ ]*))?\ ([0-9.:]+)\/(-|[\w\.]+)\ (-|\w+)\ (-|GET|HEAD|POST|CONNECT).*$')
 		self._queue = queue
 		self._stdout = FWritelineQueue(sys.stdout, False)
 
@@ -317,7 +315,7 @@ class Checker(object):
 		#self._log.info('got {} lines from database'.format(len(result)))
 		for row in result:
 			if row != None and row[0] != None:
-				if row[1] != None:
+				if row[1] != None and url_path != None:
 					self._log.info('trying regexp "{}" versus "{}"'.format(row[1], url_path))
 					try:
 						if re.compile(row[1]).match(url_path):
@@ -325,7 +323,7 @@ class Checker(object):
 						else:
 							continue
 					except:
-						self._log.info("can't compile regexp")
+						self._log.info("can't compile or execute regexp")
 				else:
 					reply = row[0].format(host = site, path = url_path)
 			if reply != None:
@@ -342,10 +340,10 @@ class Checker(object):
 			request = self._request.match(line)
 			if request:
 				id = request.group(1)
-				#proto = request.group(2)
-				site = request.group(3)
-				url_path = request.group(4)
-				ip_address = request.group(5)
+				#proto = request.group(3)
+				site = request.group(4)
+				url_path = request.group(7)
+				ip_address = request.group(8)
 				self.process(id, site, ip_address, url_path, line)
 			else:
 				self._log.info('bad request')
